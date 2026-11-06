@@ -44,12 +44,15 @@ class Profile:
     stop_s: tuple      # dwell range at such a stop, seconds
     jitter: float      # +- fraction of cruise that varies slowly along the way
     gps_sigma: float   # metres, 1-sigma horizontal drift of the reported fix
+    road: tuple = ()   # (factor, floor m/s, ceiling m/s) to turn the router's per-segment
+                       # speed into a cruise ceiling; empty = one flat cruise everywhere
 
 
 PROFILES = {
     "walk":  Profile("walk",  "foot", 1.4,  0.6, 0.8, 9.9, 1.0, 0.10, (2, 10),  0.15, 5.0),
     "bike":  Profile("bike",  "bike", 5.0,  0.8, 1.5, 1.5, 2.5, 0.25, (3, 25),  0.15, 4.0),
-    "drive": Profile("drive", "car",  13.4, 2.0, 3.0, 2.2, 4.0, 0.35, (4, 40),  0.12, 3.0),
+    "drive": Profile("drive", "car",  13.4, 2.0, 3.0, 2.2, 4.0, 0.35, (4, 40),  0.12, 3.0,
+                     (1.2, 8.0, 30.0)),  # residential ~18 mph .. freeway ~65 mph
 }
 
 
@@ -77,11 +80,12 @@ class Frame:
 
 # ---------------------------------------------------------------- routing
 def fetch_route(a, b, profile: Profile, timeout=20):
-    """Road polyline from a to b as [(lat,lng), ...] plus maneuver vertex indices.
+    """Road polyline from a to b as [(lat,lng), ...], maneuver points, and the router's
+    speed (m/s) for each segment, which tracks road class and posted limits.
     Raises on network/HTTP failure; caller decides whether to fall back."""
     url = (f"https://routing.openstreetmap.de/routed-{profile.osrm}/route/v1/driving/"
            f"{a[1]:.6f},{a[0]:.6f};{b[1]:.6f},{b[0]:.6f}"
-           "?overview=full&geometries=geojson&steps=true")
+           "?overview=full&geometries=geojson&steps=true&annotations=speed")
     req = urllib.request.Request(url, headers={"User-Agent": "whereverwhenever/0.2 (location simulation testing)"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         j = json.load(r)
@@ -92,7 +96,10 @@ def fetch_route(a, b, profile: Profile, timeout=20):
     # maneuver points: turns, lights, roundabouts live here. First/last are depart/arrive.
     man = [(st["maneuver"]["location"][1], st["maneuver"]["location"][0])
            for leg in rt["legs"] for st in leg["steps"]]
-    return pts, man[1:-1]
+    speeds = [v for leg in rt["legs"] for v in (leg.get("annotation") or {}).get("speed", [])]
+    if len(speeds) != len(pts) - 1:
+        speeds = None
+    return pts, man[1:-1], speeds
 
 
 def nearest_vertices(pts, coords):
@@ -103,16 +110,18 @@ def nearest_vertices(pts, coords):
     return sorted(out)
 
 
-def densify(pts, max_seg=25.0):
-    """Insert vertices so no segment is longer than max_seg metres (smoother sampling)."""
-    out = [pts[0]]
-    for a, b in zip(pts, pts[1:]):
+def densify(pts, max_seg=25.0, seg_v=None):
+    """Insert vertices so no segment is longer than max_seg metres (smoother sampling).
+    With seg_v (one speed per input segment) also returns a speed per output vertex."""
+    out, vout = [pts[0]], [seg_v[0] if seg_v else None]
+    for k, (a, b) in enumerate(zip(pts, pts[1:])):
         d = haversine_m(a, b)
         n = max(1, int(d // max_seg))
         for i in range(1, n + 1):
             f = i / n
             out.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
-    return out
+            vout.append(seg_v[k] if seg_v else None)
+    return (out, vout) if seg_v else out
 
 
 # ---------------------------------------------------------------- trajectory
@@ -130,6 +139,7 @@ class Leg:
     pts: list
     lights: list = field(default_factory=list)
     straight: bool = False
+    vmax: list = None  # router speed (m/s) per vertex, when the router gave one
 
 
 class Trajectory:
@@ -138,6 +148,7 @@ class Trajectory:
     def __init__(self, stops, legs, profile: Profile, seed=0, cruise=None, loop=False):
         assert len(stops) >= 2 and len(legs) == len(stops) - (0 if loop else 1)
         self.stops, self.legs, self.profile, self.seed, self.loop = stops, legs, profile, seed, loop
+        self.user_cruise = cruise
         self.cruise = cruise or profile.cruise
         rng = random.Random(seed)
         self.frame = Frame(stops[0].lat, stops[0].lng)
@@ -147,14 +158,17 @@ class Trajectory:
     # -- construction ------------------------------------------------------
     def _build(self, rng):
         p = self.profile
-        ll, dwell_at, light_at, self.leg_start_s = [], {}, set(), []
+        ll, road, dwell_at, light_at, self.leg_start_s = [], [], {}, set(), []
         for li, leg in enumerate(self.legs):
+            vm = leg.vmax if leg.vmax and len(leg.vmax) == len(leg.pts) else [None] * len(leg.pts)
             if ll:  # legs share their junction vertex
                 start = len(ll) - 1
                 ll.extend(leg.pts[1:])
+                road.extend(vm[1:])
             else:
                 start = 0
                 ll.extend(leg.pts)
+                road.extend(vm)
             self.leg_start_s.append(start)
             for i in leg.lights:
                 if 0 < i < len(leg.pts) - 1:
@@ -177,14 +191,21 @@ class Trajectory:
             if self.heading[i] is None:
                 self.heading[i] = self.heading[i - 1] if i else 0.0
 
-        # 1) speed ceiling per vertex: slow varying cruise, then bend limits
-        v = [self.cruise] * n
+        # 1) speed ceiling per vertex: the road's own speed (freeway vs side street) when
+        #    the router gave one and the user set no cruise, else one flat cruise; then a
+        #    slow-varying factor, then bend limits
+        if p.road and self.user_cruise is None:
+            f, lo, hi = p.road
+            base = [min(hi, max(lo, r * f)) if r else self.cruise for r in road]
+        else:
+            base = [self.cruise] * n
+        v = [0.0] * n
         jit, kjit = 0.0, 0.0
         for i in range(n):
             if S[i] >= kjit:  # new random cruise factor every ~150-400 m
                 jit = rng.uniform(-p.jitter, p.jitter)
                 kjit = S[i] + rng.uniform(150, 400)
-            v[i] = self.cruise * (1 + jit)
+            v[i] = base[i] * (1 + jit)
         corners = {}  # vertex -> (turn angle deg, capped speed) where the bend limit actually bit
         for i in range(1, n - 1):
             if d[i - 1] <= 0 or d[i] <= 0:
@@ -330,13 +351,15 @@ class Trajectory:
     # -- (de)serialisation so a restart does not need the network -------------
     def to_json(self):
         return {"stops": [s.__dict__ for s in self.stops],
-                "legs": [{"pts": l.pts, "lights": l.lights, "straight": l.straight} for l in self.legs],
-                "mode": self.profile.name, "seed": self.seed, "cruise": self.cruise, "loop": self.loop}
+                "legs": [{"pts": l.pts, "lights": l.lights, "straight": l.straight,
+                          "vmax": l.vmax} for l in self.legs],
+                "mode": self.profile.name, "seed": self.seed, "cruise": self.user_cruise, "loop": self.loop}
 
     @classmethod
     def from_json(cls, j):
         return cls([Stop(**s) for s in j["stops"]],
-                   [Leg([tuple(p) for p in l["pts"]], l.get("lights", []), l.get("straight", False)) for l in j["legs"]],
+                   [Leg([tuple(p) for p in l["pts"]], l.get("lights", []), l.get("straight", False), l.get("vmax"))
+                    for l in j["legs"]],
                    PROFILES[j["mode"]], j.get("seed", 0), j.get("cruise"), j.get("loop", False))
 
 
@@ -369,10 +392,10 @@ def build(stops, mode="drive", seed=None, cruise=None, loop=False, online=True, 
     pairs = list(zip(st, st[1:])) + ([(st[-1], st[0])] if loop else [])
     legs = []
     for a, b in pairs:
-        pts, man, straight = None, [], True
+        pts, man, seg_v, straight = None, [], None, True
         if online:
             try:
-                pts, man = fetch_route((a.lat, a.lng), (b.lat, b.lng), prof)
+                pts, man, seg_v = fetch_route((a.lat, a.lng), (b.lat, b.lng), prof)
                 straight = False
             except Exception as e:  # offline, rate-limited, no road nearby: straight line
                 if log:
@@ -380,6 +403,10 @@ def build(stops, mode="drive", seed=None, cruise=None, loop=False, online=True, 
         if pts is None:
             pts = [(a.lat, a.lng), (b.lat, b.lng)]
         # snap the ends to the requested stops so arrival is exact, then densify
-        pts = densify([(a.lat, a.lng)] + list(pts[1:-1]) + [(b.lat, b.lng)])
-        legs.append(Leg(pts, nearest_vertices(pts, man), straight))
+        vmax = None
+        if seg_v:
+            pts, vmax = densify([(a.lat, a.lng)] + list(pts[1:-1]) + [(b.lat, b.lng)], seg_v=seg_v)
+        else:
+            pts = densify([(a.lat, a.lng)] + list(pts[1:-1]) + [(b.lat, b.lng)])
+        legs.append(Leg(pts, nearest_vertices(pts, man), straight, vmax))
     return Trajectory(st, legs, prof, seed, cruise, loop)

@@ -100,9 +100,12 @@ any machine. Pipeline, per itinerary:
    or foot profile, so a walk cuts through the park and a drive respects one-way streets.
    Maneuver points (turns, roundabouts, junctions) are kept as candidate stop points.
    Offline or no road nearby: straight line for that leg, flagged in the UI.
-2. **Speed ceiling.** Cruise speed wanders ±12–15 % every 150–400 m (nobody holds exactly
-   30 mph). At every vertex the heading change gives a curvature; speed through it is capped
-   by lateral acceleration (`v ≤ √(a_lat / κ)`), with a hard cap through sharp turns.
+2. **Speed ceiling.** Driving, the ceiling follows the road: the router's per-segment
+   speed (road class and posted limit) scaled into roughly 18 mph on a side street to
+   65 mph on a freeway, unless you set a cruise mph yourself. Walking and cycling use one
+   flat cruise. On top of that the speed wanders ±12–15 % every 150–400 m (nobody holds
+   exactly 30 mph). At every vertex the heading change gives a curvature; speed through it
+   is capped by lateral acceleration (`v ≤ √(a_lat / κ)`), with a hard cap through sharp turns.
 3. **Stops.** Itinerary stops force v = 0 and a dwell. Each maneuver point stops with a
    per-mode probability (35 % driving) for 4–40 s: lights and stop signs.
 4. **Feasibility.** A forward pass enforces acceleration limits, a backward pass braking

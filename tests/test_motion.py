@@ -133,3 +133,27 @@ def test_leg_index_tracks_progress():
     seen = [tr.pos_at(t, noisy=False)["leg"] for t in range(0, int(tr.total_s) + 1, 5)]
     assert seen[0] == 0 and seen[-1] == 2
     assert seen == sorted(seen)
+
+
+def test_road_speeds_lift_the_freeway_and_hold_side_streets():
+    """A leg whose router speeds say residential -> freeway -> residential: the car should
+    get well past the flat cruise on the fast part, stay slow on the slow parts, and the
+    speeds must survive the JSON round trip (a resumed trip replays the same profile)."""
+    a, b = Stop(37.87, -122.27, "A"), Stop(37.87, -122.27 + 6000 / 88_000, "B")
+    pts = motion.densify([(a.lat, a.lng), (b.lat, b.lng)], 20)
+    n = len(pts)
+    slow, fast = 25 / 3.6, 90 / 3.6  # OSRM car: residential, motorway
+    vmax = [slow if i < n // 5 or i > 4 * n // 5 else fast for i in range(n)]
+    tr = Trajectory([a, b], [Leg(pts, [], True, vmax)], PROFILES["drive"], seed=3)
+    f, lo, hi = PROFILES["drive"].road
+    assert tr.v_max > PROFILES["drive"].cruise * 1.5 and tr.v_max <= hi * (1 + PROFILES["drive"].jitter) + 1e-6
+    # first fifth is residential: never faster than the residential ceiling (plus jitter)
+    s_slow = tr.S[n // 5 - 2]
+    vs = [tr.state_at(t)[1] for t in range(0, int(tr.total_s)) if tr.state_at(t)[0] < s_slow]
+    assert max(vs) <= max(lo, slow * f) * (1 + PROFILES["drive"].jitter) + 1e-6
+    again = Trajectory.from_json(tr.to_json())
+    assert again.total_s == pytest.approx(tr.total_s) and again.v_max == pytest.approx(tr.v_max)
+    # a user-set cruise overrides the road speeds, and that choice also survives the round trip
+    capped = Trajectory([a, b], [Leg(pts, [], True, vmax)], PROFILES["drive"], seed=3, cruise=10.0)
+    assert capped.v_max <= 10.0 * (1 + PROFILES["drive"].jitter) + 1e-6
+    assert Trajectory.from_json(capped.to_json()).user_cruise == 10.0
