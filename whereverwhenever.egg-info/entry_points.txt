@@ -1,3 +1,0 @@
-[console_scripts]
-whereverwhenever = whereverwhenever.server:main
-whereverwhenever-cli = whereverwhenever.cli:main
