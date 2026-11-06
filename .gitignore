@@ -4,3 +4,5 @@ __pycache__/
 *.gpx
 state.json
 .pytest_cache/
+.vercel
+.vercel/

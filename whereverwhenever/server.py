@@ -30,7 +30,7 @@ HOME = os.path.join(os.path.expanduser("~"), ".whereverwhenever")
 STATE_FILE = os.path.join(HOME, "state.json")
 PAGE = open(os.path.join(HERE, "page.html"), encoding="utf-8").read()
 SITE = "https://whereverwhenever.vercel.app"
-ALLOWED_ORIGINS = {SITE, "https://whereverwhenever.app"}
+ALLOWED_ORIGINS = {SITE, "https://geofake-pi.vercel.app", "https://whereverwhenever.app"}
 ORIGIN_RE = re.compile(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$")
 
 STATE = {"target": None, "status": "starting", "device": "", "applied": None, "set_at": None, "trip": None,

@@ -1,0 +1,7 @@
+pymobiledevice3>=11.0
+
+[ai]
+anthropic>=1.0
+
+[dev]
+pytest
