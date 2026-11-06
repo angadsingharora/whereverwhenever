@@ -1,8 +1,15 @@
 # geofake
 
-Spoof an iPhone's GPS location from a Windows/Linux/Mac box. No jailbreak, no admin,
-no paid app. A map UI you click on, plus a CLI. Built on
+Spoof an iPhone's GPS location from a Windows/Linux/Mac box, and make the fake
+location **move like a real person**: on real roads, braking for corners, waiting at
+lights, lingering at each stop, with GPS drift. No jailbreak, no admin, no paid app.
+A map UI, a CLI, and a deterministic motion engine. Built on
 [pymobiledevice3](https://github.com/doronz88/pymobiledevice3).
+
+Teleporting a phone to a pin is one API call that every "location changer" app makes.
+What none of them do is the part that makes a spoof survive a glance from a human or a
+heuristic: a trajectory that could have been recorded by a phone in someone's pocket.
+That is what `motion.py` is.
 
 > **Status (Nov 2026):** works on iOS 17.4 through 26.x for Maps and most apps.
 > On **iOS 27.2** the phone accepts the command and ignores it. **Find My** stopped
@@ -48,18 +55,57 @@ Open http://127.0.0.1:8765. Click the map to drop a pin, hit **Teleport**. Drag 
 fine-tune. Search a place name or paste `lat, lng`. Star a spot to save it. **Real GPS**
 clears the spoof. Ctrl+C in the terminal also clears it.
 
-**Trip:** set A (the current pin, or click the map) and B, pick Walk / Bike / Drive or
-type a speed in mph, hit **Start trip**. The phone moves along a straight line from A to
-B once a second and holds at B. **Stop here** freezes it mid-way. The server does the
-moving, so the browser tab can be closed.
+**Itinerary:** add stops (click the map with **+ Stop** on, search, or **From pin** to start
+where the phone is), set how many minutes to linger at each, pick Walk / Bike / Drive,
+optionally a cruise speed in mph, optionally **Loop**, hit **Start**. The route is fetched
+from OpenStreetMap roads for that mode, and the phone moves along it with the motion
+model below. Live speed, heading, time left, and the next stop are shown. **Stop here**
+freezes it wherever it is. The server does the moving, so the tab can be closed; the
+running itinerary is saved to `state.json` and resumed after a restart or reboot at the
+right point in time.
 
 CLI:
 ```
 python geofake.py pin 37.8716 -122.2727
-python geofake.py go 37.8716 -122.2727 37.8044 -122.2712 --speed 13.4   # A to B at 13.4 m/s (30 mph), hold at B
-python geofake.py walk route.gpx --speed 1.4     # walk a GPX track at 1.4 m/s, back and forth
+python geofake.py go 37.8716 -122.2727 37.8044 -122.2712 --mode drive   # A to B on roads, hold at B
+python geofake.py plan day.json --mode walk --loop   # [{lat,lng,name,dwell_s}, ...] round and round
+python geofake.py walk route.gpx --speed 1.4         # raw GPX track, no motion model
 python geofake.py clear
 ```
+`--seed N` replays the exact same lights, pauses and drift. `--straight` skips routing (offline).
+
+## Motion model
+
+`motion.py` turns a list of stops into a position-as-a-function-of-time that is
+deterministic from a seed, so "where should the phone be at 14:07:32" has one answer on
+any machine. Pipeline, per itinerary:
+
+1. **Routing.** Each leg goes through OSRM (`routing.openstreetmap.de`) with the car, bike
+   or foot profile, so a walk cuts through the park and a drive respects one-way streets.
+   Maneuver points (turns, roundabouts, junctions) are kept as candidate stop points.
+   Offline or no road nearby: straight line for that leg, flagged in the UI.
+2. **Speed ceiling.** Cruise speed wanders ±12–15 % every 150–400 m (nobody holds exactly
+   30 mph). At every vertex the heading change gives a curvature; speed through it is capped
+   by lateral acceleration (`v ≤ √(a_lat / κ)`), with a hard cap through sharp turns.
+3. **Stops.** Itinerary stops force v = 0 and a dwell. Each maneuver point stops with a
+   per-mode probability (35 % driving) for 4–40 s: lights and stop signs.
+4. **Feasibility.** A forward pass enforces acceleration limits, a backward pass braking
+   limits, so the car can't be doing 30 at a corner it has to take at 9. This yields
+   keyframes `(t, s, v)` with constant acceleration between them.
+5. **Sampling.** `pos_at(t)` bisects the keyframes, integrates the kinematics to an arc
+   length, maps that onto the polyline, and returns lat, lng, heading, speed, leg, progress.
+6. **GPS drift.** Real fixes wander a few metres on a 10–90 s timescale, not white noise.
+   A seeded sum of sinusoids per axis (normalised to 3–5 m RMS by mode) gives that with no
+   state, so it's resumable and identical on replay.
+
+`tests/test_motion.py` checks all of it offline: exact arrival, monotone time and
+distance, accel/decel limits between every 1 s sample, corner slow-down, dwell
+duration, loop wrap, seed determinism, JSON round-trip, noise RMS and smoothness.
+Run `python -m pytest -q`.
+
+Honest limits: no elevation, no traffic, no lane-level detail, the road graph is whatever
+OSM has, and iOS still only gets a lat/lng (no speed or course is injected through this
+channel, apps derive those from successive fixes).
 
 Both take `--rsd ADDR PORT` to reuse a tunnel from `pymobiledevice3 lockdown start-tunnel`,
 and `--udid` if more than one phone is attached. `geoweb.py --no-device` runs the UI
@@ -118,5 +164,7 @@ channel, same limits).
 
 ## Files
 
-- `geoweb.py` + `page.html`: local web server and map UI (teleport and A-to-B trips)
-- `geofake.py`: CLI (`pin`, `go`, `walk`, `clear`) and the shared `Session` class
+- `motion.py`: routing + motion model + GPS drift, deterministic and serialisable
+- `geoweb.py` + `page.html`: local web server and map UI (teleport and itineraries)
+- `geofake.py`: CLI (`pin`, `go`, `plan`, `walk`, `clear`) and the shared `Session` class
+- `tests/test_motion.py`: offline checks on the motion model

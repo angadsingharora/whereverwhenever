@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 *.log
 *.gpx
+state.json
+.pytest_cache/

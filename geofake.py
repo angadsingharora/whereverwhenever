@@ -3,7 +3,8 @@
 geofake: keep a simulated location pinned on a USB-connected iPhone (iOS 17.4+).
 
   geofake.py pin 37.8716 -122.2727          hold one coordinate until Ctrl+C
-  geofake.py go 37.87 -122.27 37.80 -122.41 --speed 13.4   drive A to B at 13.4 m/s, hold at B
+  geofake.py go 37.87 -122.27 37.80 -122.41 --mode drive   A to B on real roads, realistic motion
+  geofake.py plan day.json --loop           multi-stop itinerary with dwell times, round and round
   geofake.py walk route.gpx --speed 1.4     walk a GPX track at 1.4 m/s, back and forth
   geofake.py clear                          drop the simulation
 
@@ -16,6 +17,7 @@ process must stay running. It reconnects and re-applies the last fix on any drop
 """
 import argparse
 import asyncio
+import json
 import math
 import time
 import xml.etree.ElementTree as ET
@@ -65,6 +67,17 @@ def walk_points(route, speed, tick, loop):
 def pin_points(lat, lng):
     while True:
         yield lat, lng
+
+
+def traj_points(traj):
+    """Follow a motion.Trajectory against the wall clock; ends when it arrives (never, if looping)."""
+    t0 = time.time()
+    while True:
+        el = time.time() - t0
+        p = traj.pos_at(el)
+        yield p["lat"], p["lng"]
+        if not traj.loop and el >= traj.total_s:
+            return
 
 
 # ---------- device session ----------
@@ -125,10 +138,18 @@ async def run(args):
 
     if args.cmd == "pin":
         gen = pin_points(args.lat, args.lng)
-    elif args.cmd == "go":
-        a, b = (args.lat1, args.lng1), (args.lat2, args.lng2)
-        log(f"{haversine_m(a, b):.0f} m at {args.speed} m/s, about {haversine_m(a, b) / args.speed:.0f} s")
-        gen = walk_points([a, b], args.speed, args.tick, False)
+    elif args.cmd in ("go", "plan"):
+        import motion
+
+        if args.cmd == "go":
+            stops = [(args.lat1, args.lng1), (args.lat2, args.lng2)]
+        else:
+            stops = [motion.Stop(float(s["lat"]), float(s["lng"]), s.get("name", ""), float(s.get("dwell_s", 0)))
+                     for s in json.load(open(args.file, encoding="utf-8"))]
+        traj = motion.build(stops, args.mode, args.seed, args.cruise, args.loop, online=not args.straight, log=log)
+        log(f"{len(traj.stops)} stops, {traj.total_m:.0f} m on roads, {traj.total_s / 60:.1f} min, "
+            f"{args.mode}{' loop' if traj.loop else ''}, seed {traj.seed}")
+        gen = traj_points(traj)
     else:
         gen = walk_points(load_gpx(args.gpx), args.speed, args.tick, not args.once)
     backoff = 2
@@ -180,12 +201,23 @@ def main():
     s.add_argument("lat", type=float)
     s.add_argument("lng", type=float)
 
-    s = sub.add_parser("go", help="move from A to B at a speed, then hold at B")
+    def motion_args(s):
+        s.add_argument("--mode", choices=("walk", "bike", "drive"), default="drive")
+        s.add_argument("--cruise", type=float, help="override cruise speed, m/s")
+        s.add_argument("--seed", type=int, help="replay the exact same lights, pauses and GPS drift")
+        s.add_argument("--loop", action="store_true", help="go round the stops forever")
+        s.add_argument("--straight", action="store_true", help="skip road routing (offline)")
+
+    s = sub.add_parser("go", help="drive/bike/walk from A to B on real roads, then hold at B")
     s.add_argument("lat1", type=float)
     s.add_argument("lng1", type=float)
     s.add_argument("lat2", type=float)
     s.add_argument("lng2", type=float)
-    s.add_argument("--speed", type=float, default=13.4, help="m/s (1.4 walk, 5 bike, 13.4 = 30 mph)")
+    motion_args(s)
+
+    s = sub.add_parser("plan", help="run an itinerary: JSON list of {lat,lng,name,dwell_s}")
+    s.add_argument("file")
+    motion_args(s)
 
     s = sub.add_parser("walk", help="walk a GPX track")
     s.add_argument("gpx")
