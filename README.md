@@ -30,8 +30,9 @@ iOS 17+ developer tunnel through the DVT instruments channel
 
 whereverwhenever does three things:
 
-1. Opens a no-root, in-process tunnel to the phone over USB (pymobiledevice3's
-   userspace tunnel).
+1. Opens a no-root, in-process tunnel to the phone over USB, or over Wi-Fi
+   (pymobiledevice3's userspace tunnel; the first USB session pairs the phone for
+   Wi-Fi, promptless, so afterwards a shared network is enough).
 2. Opens the LocationSimulation channel and sends `simulateLocationWithLatitude:longitude:`.
 3. **Keeps that session open.** The phone only honours the fake location while the
    session lives. Drop the cable, sleep the PC, kill the script, and real GPS is back
@@ -39,7 +40,7 @@ whereverwhenever does three things:
 
 ## Use
 
-Phone plugged in and unlocked, then:
+Phone plugged in and unlocked (first time; after that, same Wi-Fi works), then:
 
 ```
 pip install git+https://github.com/angadsingharora/whereverwhenever
@@ -54,6 +55,11 @@ First time only: iPhone Settings > Privacy & Security > Developer Mode > on, reb
 (if the toggle is missing: `pymobiledevice3 amfi reveal-developer-mode`). Windows needs
 the **Apple Devices** app from the Store for the USB driver. Then
 `pymobiledevice3 mounter auto-mount` once.
+
+**Cable or Wi-Fi:** the Phone card has an Auto / USB / Wi-Fi switch, and the bridge
+takes `--link usb|wifi|auto`. Auto uses the cable when it's in and Wi-Fi otherwise.
+Wi-Fi needs one earlier USB session (that's when it pairs) and both devices on the same
+network; the phone has to have been unlocked since its last reboot.
 
 **Teleport:** click the map, **Teleport**. Search a place or paste `lat, lng`.
 

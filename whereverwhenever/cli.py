@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-whereverwhenever CLI: keep a simulated location pinned on a USB-connected iPhone (iOS 17.4+).
+whereverwhenever CLI: keep a simulated location pinned on an iPhone (iOS 17.4+) over USB or Wi-Fi.
 
   whereverwhenever-cli pin 37.8716 -122.2727          hold one coordinate until Ctrl+C
   whereverwhenever-cli go 37.87 -122.27 37.80 -122.41 --mode drive   A to B on real roads, realistic motion
@@ -10,6 +10,7 @@ whereverwhenever CLI: keep a simulated location pinned on a USB-connected iPhone
 
 Needs: pip install -U pymobiledevice3 ; Developer Mode on ; phone unlocked at start.
 No admin needed: uses pymobiledevice3's in-process userspace tunnel.
+Plug in once: that pairs the phone for Wi-Fi, after which the same network is enough.
 Pass --rsd ADDR PORT to reuse a tunnel from `pymobiledevice3 lockdown start-tunnel` instead.
 
 The device only honours the fake location while the DVT session is open, so this
@@ -26,6 +27,8 @@ from contextlib import AsyncExitStack
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
 from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
+
+from . import link  # noqa: F401  (patches the tunnel to try Wi-Fi when there's no cable)
 
 
 def log(msg):
@@ -90,6 +93,7 @@ class Session:
         self.stack = None
         self.loc = None
         self.device = ""
+        self.link = ""
 
     async def open(self):
         await self.close()
@@ -101,9 +105,10 @@ class Session:
         else:
             from pymobiledevice3.remote.userspace_tunnel import UserspaceRsdTunnel
 
-            log("opening userspace tunnel (phone must be unlocked)...")
+            log("opening userspace tunnel (USB, or Wi-Fi if paired)...")
             rsd = await self.stack.enter_async_context(UserspaceRsdTunnel(serial=self.udid))
-            log(f"tunnel up: {rsd.product_type} iOS {rsd.product_version}")
+            self.link = link.LAST["link"]
+            log(f"tunnel up over {self.link or 'rsd'}: {rsd.product_type} iOS {rsd.product_version}")
         self.device = f"{rsd.product_type} iOS {rsd.product_version}"
         dvt = await self.stack.enter_async_context(DvtProvider(rsd))
         self.loc = await self.stack.enter_async_context(LocationSimulation(dvt))
@@ -194,6 +199,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--rsd", nargs=2, metavar=("ADDR", "PORT"), help="reuse an existing start-tunnel")
     p.add_argument("--udid", help="target device if more than one is plugged in")
+    p.add_argument("--link", choices=link.MODES, default="auto",
+                   help="usb: cable only. wifi: same network only (plug in once first to pair). auto: cable if in, else Wi-Fi")
     p.add_argument("--tick", type=float, default=1.0, help="seconds between updates (default 1)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -227,7 +234,9 @@ def main():
     sub.add_parser("clear", help="drop the simulated location")
 
     try:
-        asyncio.run(run(p.parse_args()))
+        a = p.parse_args()
+        link.PREF["mode"] = a.link
+        asyncio.run(run(a))
     except KeyboardInterrupt:
         pass
 

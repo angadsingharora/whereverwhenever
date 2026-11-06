@@ -23,6 +23,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import motion
+from . import link
 from .cli import Session, log
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -33,7 +34,7 @@ SITE = "https://whereverwhenever.vercel.app"
 ALLOWED_ORIGINS = {SITE, "https://geofake-pi.vercel.app", "https://whereverwhenever.app"}
 ORIGIN_RE = re.compile(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$")
 
-STATE = {"target": None, "status": "starting", "device": "", "applied": None, "set_at": None, "trip": None,
+STATE = {"target": None, "status": "starting", "device": "", "link": "", "link_pref": "auto", "applied": None, "set_at": None, "trip": None,
          "ai": False, "version": "0.2.0"}
 TRAJ = None      # motion.Trajectory for the running itinerary
 LOCK = threading.Lock()
@@ -341,6 +342,15 @@ class H(BaseHTTPRequestHandler):
                     STATE["trip"], TRAJ = None, None
                     STATE["target"] = None
                 reply = {"ok": True}
+            elif self.path == "/link":
+                m = body.get("mode")
+                if m not in link.MODES:
+                    return self._json({"error": "mode"}, 400)
+                if m == "wifi" and not link.wifi_paired():
+                    return self._json({"error": "Not paired for Wi-Fi yet. Plug the cable in once, it pairs on its own."}, 409)
+                with LOCK:
+                    link.PREF["mode"] = STATE["link_pref"] = m
+                reply = {"ok": True}
             else:
                 return self._json({"error": "no"}, 404)
         except (KeyError, ValueError, TypeError) as e:
@@ -393,18 +403,27 @@ async def device_loop(rsd, udid):
                     STATE["status"] = "connecting to phone (plug in, unlock)"
                     await sess.open()
                     STATE["device"] = getattr(sess, "device", "")
+                    STATE["link"] = getattr(sess, "link", "")
                     STATE["status"] = "ok: connected"
                     backoff = 2
                     STATE["applied"] = None
                 await wait_wake(await apply_step(sess))
+                pref = link.PREF["mode"]
+                if sess.loc is not None and pref != "auto" and sess.link and sess.link != pref:
+                    log(f"switching link to {pref}")
+                    await sess.close()
+                    STATE["status"] = f"switching to {pref}"
+                    STATE["applied"] = None
+                    STATE["link"] = ""
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 STATE["status"] = f"err: {type(e).__name__}: {e}"[:160]
                 STATE["applied"] = None
+                STATE["link"] = ""
                 name = type(e).__name__
                 if name == "NoDeviceConnectedError":
-                    msg = "no phone plugged in"
+                    msg = str(e) if "Wi-Fi" in str(e) else "no phone plugged in"
                 elif "Passcode" in name or "Lockdown" in name:
                     msg = "phone is locked, unlock it"
                 else:
@@ -437,10 +456,13 @@ def main():
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--rsd", nargs=2, metavar=("ADDR", "PORT"), help="reuse an existing start-tunnel")
     p.add_argument("--udid", help="target device if more than one is plugged in")
+    p.add_argument("--link", choices=link.MODES, default="auto",
+                   help="usb: cable only. wifi: same network only (plug in once first to pair). auto: cable if in, else Wi-Fi")
     p.add_argument("--no-device", action="store_true", help="UI only, for testing without a phone")
     p.add_argument("--fresh", action="store_true", help="ignore saved state, start with no spoof")
     p.add_argument("--no-browser", action="store_true", help="don't open the UI automatically")
     a = p.parse_args()
+    link.PREF["mode"] = STATE["link_pref"] = a.link
 
     if not a.fresh:
         load_state()
