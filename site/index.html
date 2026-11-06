@@ -316,7 +316,7 @@ function type(t){let i=0;const e=$('tagT');e.textContent='';const id=setInterval
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!boot.done)boot.finish();});
 
 // ---------- map (MapLibre + OpenFreeMap Positron) ----------
-const map=new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/positron',center:[-122.3,37.8],zoom:10,attributionControl:{compact:true}});
+const map=new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/positron',center:[-122.33,47.61],zoom:11,attributionControl:{compact:true}});
 map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
 let layersReady=false; const pendingData={};
 const EMPTY={type:'FeatureCollection',features:[]};
@@ -607,7 +607,7 @@ async function aiPlan(){
 // ---------- simulated iPhone ----------
 const sim={map:null,dot:null,on:false,last:null,
   toggle(){this.on=!this.on;$('sim').classList.toggle('show',this.on);$('simBtn').classList.toggle('on',this.on);
-    if(this.on&&!this.map){this.map=new maplibregl.Map({container:'simMap',style:'https://tiles.openfreemap.org/styles/positron',center:[-122.27,37.87],zoom:14,interactive:false,attributionControl:false});this.map.on('load',()=>vibrant(this.map));}
+    if(this.on&&!this.map){this.map=new maplibregl.Map({container:'simMap',style:'https://tiles.openfreemap.org/styles/positron',center:[-122.335,47.608],zoom:14,interactive:false,attributionControl:false});this.map.on('load',()=>vibrant(this.map));}
     if(this.on){setTimeout(()=>{this.map.resize();if(this.last)this.update(...this.last,true);},50);}},
   update(s,t,jump){this.last=[s,t]; if(!this.on||!this.map)return;
     const p=s.applied;
