@@ -114,7 +114,28 @@ def finish_trip(hold_at):
 
 # ---------------------------------------------------------------- geocoding
 def geocode(q, near=None):
-    """Nominatim search, biased towards `near` (lat,lng). Returns (lat, lng, short name) or None."""
+    """Nominatim search with progressively simpler forms of the query. Biased towards `near`.
+    Returns (lat, lng, short name) or None."""
+    base = re.sub(r"\s*\([^)]*\)", "", q).strip()  # drop "(RSF)"-style asides
+    parts = [x.strip() for x in base.split(",") if x.strip()]
+    variants = [q, base]
+    if len(parts) > 2:
+        variants += [", ".join(parts[:1] + parts[-1:]), ", ".join(parts[1:]), ", ".join(parts[:2])]
+    if parts:
+        variants.append(parts[0])
+    seen = set()
+    for v in variants:
+        if v in seen or not v:
+            continue
+        seen.add(v)
+        r = _geocode_once(v, near)
+        if r:
+            return r
+        time.sleep(1.0)  # Nominatim rate limit
+    return None
+
+
+def _geocode_once(q, near):
     params = {"format": "json", "limit": 1, "q": q}
     if near:
         d = 0.25
@@ -138,8 +159,9 @@ simulator. Output only JSON, no prose, matching:
  "stops": [{"query": string, "name": string, "dwell_min": number, "use_current": bool}]}
 
 Rules:
-- "query" is a place search string a map geocoder can resolve, specific enough to be unambiguous
-  (add the city/area from context). "name" is a short label (2-4 words).
+- "query" is what you'd type into OpenStreetMap search: the place's common name plus the city,
+  e.g. "Blue Bottle Coffee, Berkeley" or "Rockridge BART, Oakland". No abbreviations in
+  parentheses, no descriptions, at most one comma. "name" is a short label (2-4 words).
 - The first stop is where the journey starts. If the user doesn't say where they start, or says
   "from here"/"from where I am", make the first stop use_current=true with query "" and name "Here".
 - dwell_min is how long they linger at that stop; 0 for the start unless looping. Infer sensible
@@ -149,7 +171,15 @@ Rules:
 - mode: infer from verbs/context; default drive for multi-km trips, walk for short ones."""
 
 
+KEY_FILE = os.path.join(HOME, "key")
+
+
 def ai_available():
+    """ANTHROPIC_API_KEY from the environment, else ~/.whereverwhenever/key (one line)."""
+    if not os.environ.get("ANTHROPIC_API_KEY") and os.path.exists(KEY_FILE):
+        k = open(KEY_FILE, encoding="utf-8").read().strip()
+        if k:
+            os.environ["ANTHROPIC_API_KEY"] = k
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return False
     try:
@@ -409,7 +439,7 @@ def main():
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{a.port}"
-    print(f"bridge up at {url}  (AI planning: {'on' if STATE['ai'] else 'off, set ANTHROPIC_API_KEY'})", flush=True)
+    print(f"bridge up at {url}  (AI planning: {'on' if STATE['ai'] else 'off: set ANTHROPIC_API_KEY or put the key in ~/.whereverwhenever/key'})", flush=True)
     if not a.no_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
