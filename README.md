@@ -1,4 +1,6 @@
-# geofake
+# whereverwhenever
+
+*Your iPhone, wherever, whenever.*
 
 Spoof an iPhone's GPS location from a Windows/Linux/Mac box, and make the fake
 location **move like a real person**: on real roads, braking for corners, waiting at
@@ -24,14 +26,14 @@ iOS 17+ developer tunnel through the DVT instruments channel
 (`com.apple.instruments.server.services.LocationSimulation`). Every commercial
 "location changer" app for iPhone is a wrapper around this same channel.
 
-geofake does three things:
+whereverwhenever does three things:
 
 1. Opens a no-root, in-process tunnel to the phone over USB (pymobiledevice3's
    userspace tunnel).
 2. Opens the LocationSimulation channel and sends `simulateLocationWithLatitude:longitude:`.
 3. **Keeps that session open.** The phone only honours the fake location while the
    session lives. Drop the cable, sleep the PC, kill the script, and real GPS is back
-   within seconds. geofake reconnects and re-applies the last pin on any drop.
+   within seconds. whereverwhenever reconnects and re-applies the last pin on any drop.
 
 ## Setup
 
