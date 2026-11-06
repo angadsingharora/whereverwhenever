@@ -15,6 +15,7 @@
  header{display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid var(--line);position:relative;background:#fff}
  header .brand{font-weight:700;letter-spacing:-.02em;font-size:15px}
  header .brand b{color:var(--acc);font-weight:700}
+ header .brand em{font-style:normal;color:var(--sec)}
  header .brand span{color:var(--faint);font-weight:400;font-size:12px;margin-left:10px;letter-spacing:0}
  #clock{color:var(--faint);margin-left:4px;font-size:12px}
  #bridge{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--mut);font-size:12px}
@@ -153,13 +154,15 @@
  #toast.show{opacity:1;transform:translateX(-50%)}
  /* boot screen */
  #intro{position:fixed;inset:0;z-index:3000;background:#fff;display:flex;align-items:center;justify-content:center;transition:opacity .5s,visibility .5s}
- #intro::before{content:"";position:absolute;inset:0;background-image:radial-gradient(#cdd6cf .9px,transparent .9px);background-size:22px 22px;opacity:.7;mask-image:radial-gradient(ellipse at center,#000 25%,transparent 72%);-webkit-mask-image:radial-gradient(ellipse at center,#000 25%,transparent 72%)}
+ #intro::before{content:"";position:absolute;inset:0;background-image:radial-gradient(#b9cde3 1px,transparent 1px);background-size:22px 22px;opacity:.7;mask-image:radial-gradient(ellipse at center,#000 25%,transparent 72%);-webkit-mask-image:radial-gradient(ellipse at center,#000 25%,transparent 72%)}
+ #intro::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 50% at 30% 20%,#2a6fbd14,transparent 70%),radial-gradient(40% 40% at 85% 85%,#1f7a4d10,transparent 70%);pointer-events:none}
  #intro.gone{opacity:0;visibility:hidden}
  #intro .box{position:relative;width:min(580px,92vw);max-height:94vh;overflow:auto;padding:4px}
  #intro h1{margin:0;font-size:40px;font-weight:700;letter-spacing:-.035em;line-height:1}
  #intro h1 b{font-weight:700;color:var(--acc)}
+ #intro h1 em{font-style:normal;color:var(--sec)}
  #intro .tag{margin:10px 0 18px;color:var(--mut);font-size:14px;min-height:20px}
- #intro .tag i{display:inline-block;width:8px;height:16px;background:var(--fg);vertical-align:-3px;animation:blink 1s steps(1) infinite}
+ #intro .tag i{display:inline-block;width:8px;height:16px;background:var(--sec);vertical-align:-3px;animation:blink 1s steps(1) infinite}
  @keyframes blink{50%{opacity:0}}
  #intro .what{margin:0 0 16px;font-size:14px;line-height:1.55;color:var(--fg)}
  #intro .what b{font-weight:600}
@@ -167,9 +170,9 @@
  #steps.show{display:block}
  #steps>div{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--mut);line-height:1.5}
  #steps b{color:var(--fg);font-weight:600;margin-right:4px}
- #steps .n{color:var(--faint);width:14px;flex:none;padding-top:1px}
+ #steps .n{color:var(--sec);width:14px;flex:none;padding-top:1px;font-weight:500}
  #steps pre{margin:6px 0 0;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:12px;color:var(--fg);user-select:all;overflow:auto}
- #boot{margin:0;padding:12px 14px;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:12px;line-height:1.75;min-height:140px;color:var(--mut);box-shadow:var(--shadow)}
+ #boot{margin:0;padding:12px 14px;border:1px solid var(--line);border-left:3px solid var(--sec);background:#fff;border-radius:8px;font-size:12px;line-height:1.75;min-height:140px;color:var(--mut);box-shadow:var(--shadow)}
  #boot .ln{display:flex;gap:10px}
  #boot .k{color:var(--faint);width:30px;flex:none}
  #boot .w{flex:1}
@@ -180,7 +183,7 @@
  @media(max-width:820px){#body{grid-template-columns:1fr;grid-template-rows:auto 1fr}#side{max-height:48vh;border-right:0;border-bottom:1px solid var(--line)}}
 </style></head><body>
 <div id="intro"><div class="box">
- <h1>wherever<b>whenever</b></h1>
+ <h1><em>wherever</em><b>whenever</b></h1>
  <div class="tag"><span id="tagT"></span><i></i></div>
  <p class="what">Moves your iPhone's location from this page. Teleport to a pin, or give it stops and it <b>drives there on real roads</b>: accelerating, braking into corners, waiting at lights, lingering where you'd linger, with the few metres of GPS wobble a real phone has. Find My, Maps, every app sees the same thing.</p>
  <div id="steps">
@@ -193,7 +196,7 @@ whereverwhenever</pre></div></div>
  <div id="introBtns"><span id="introMsg"></span><button class="primary" onclick="boot.finish()">Continue</button></div>
 </div></div>
 <div id="app">
- <header><div class="brand">wherever<b>whenever</b><span>your iPhone, wherever, whenever</span></div><span id="clock" class="mono"></span><div id="busy"></div>
+ <header><div class="brand"><em>wherever</em><b>whenever</b><span>your iPhone, wherever, whenever</span></div><span id="clock" class="mono"></span><div id="busy"></div>
   <div id="bridge"><i id="dot"></i><span id="stText">looking for the bridge…</span><span id="device" class="mono"></span></div>
   <button id="simBtn" onclick="sim.toggle()" title="what a friend's phone would show">Simulated iPhone</button>
   <a href="https://github.com/angadsingharora/whereverwhenever" target="_blank">source</a></header>
