@@ -1,6 +1,8 @@
 # whereverwhenever
 
-*Your iPhone, wherever, whenever.*
+*Your iPhone, wherever, whenever.* Live at **https://whereverwhenever.vercel.app**.
+
+![whereverwhenever: route on real roads, speed profile, simulated iPhone](docs/screenshot.jpg)
 
 Spoof an iPhone's GPS location from a Windows/Linux/Mac box, and make the fake
 location **move like a real person**: on real roads, braking for corners, waiting at
@@ -63,6 +65,8 @@ that is. **Go** runs it. Live speed, acceleration, heading, next stop, and a cur
 profile. **Stop here** freezes it. The bridge does the moving, so the tab can be closed;
 a running itinerary is saved to `~/.whereverwhenever/state.json` and resumes mid-route
 after a restart.
+
+**Share:** the itinerary lives in the URL, so **Share** copies a link that rebuilds it. **Simulated iPhone** in the header opens a Find My-style phone that follows whatever the bridge sends. Keys: `/` search, `Esc` cancel, `Enter` confirm or go.
 
 **Plan in words:** with `ANTHROPIC_API_KEY` set and `pip install anthropic`, a text box
 appears: "gym for an hour, coffee at Blue Bottle, then home, by bike". Claude (Opus 5.5)

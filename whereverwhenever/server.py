@@ -402,7 +402,16 @@ async def device_loop(rsd, udid):
             except Exception as e:
                 STATE["status"] = f"err: {type(e).__name__}: {e}"[:160]
                 STATE["applied"] = None
-                log(f"link lost: {e!r}; retry in {backoff}s")
+                name = type(e).__name__
+                if name == "NoDeviceConnectedError":
+                    msg = "no phone plugged in"
+                elif "Passcode" in name or "Lockdown" in name:
+                    msg = "phone is locked, unlock it"
+                else:
+                    msg = f"link lost: {e!r}"
+                if msg != getattr(sess, "_last_msg", None) or backoff >= 30 and time.time() - getattr(sess, "_last_t", 0) > 300:
+                    log(f"{msg}; retrying")
+                    sess._last_msg, sess._last_t = msg, time.time()
                 await sess.close()
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)

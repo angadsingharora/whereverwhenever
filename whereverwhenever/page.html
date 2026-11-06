@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>whereverwhenever</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Your iPhone, wherever, whenever. Spoof the location, or give it stops and it drives there on real roads with realistic motion.">
+<meta property="og:title" content="whereverwhenever"><meta property="og:description" content="Your iPhone, wherever, whenever. Teleport, or run an itinerary on real roads with braking, lights, dwell and GPS drift.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3CradialGradient%20id%3D%22g%22%20cx%3D%2235%25%22%20cy%3D%2230%25%22%20r%3D%2275%25%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%236fb6ff%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%230b4fb3%22/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2230%22%20fill%3D%22url%28%23g%29%22/%3E%3Cpath%20fill%3D%22%233fae4a%22%20d%3D%22M14%2020c4-6%2012-8%2017-5%203%202%201%206%205%207s7%204%205%208-6%203-9%206-2%208-6%208-6-5-8-9-7-9-4-15z%22/%3E%3Cpath%20fill%3D%22%233fae4a%22%20d%3D%22M42%2014c5%201%2010%206%2012%2011-3%202-7%201-9%204s0%207-3%208-5-3-5-7%201-6%200-9%202-6%205-7z%22/%3E%3Cpath%20fill%3D%22%233fae4a%22%20d%3D%22M38%2044c4-1%208%201%2010%204-2%204-6%207-11%208-2-3-2-9%201-12z%22/%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2230%22%20fill%3D%22none%22%20stroke%3D%22%2308306b%22%20stroke-width%3D%222%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
@@ -80,7 +82,8 @@
  .simtabs span.on{color:#1a73e8}
  .simtabs i{display:block;width:22px;height:22px;border-radius:6px;background:currentColor;opacity:.25;margin:0 auto 3px}
  @media(max-width:1100px){#sim{display:none!important}}
- .row{display:flex;gap:6px;margin-top:8px;align-items:center}
+ .row{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}
+ .row button{white-space:nowrap}
  .row .grow{flex:1}
  #coords{margin-top:6px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;display:flex;justify-content:space-between;color:var(--mut);background:var(--panel)}
  #coords.live{border-color:#86efac;background:#f0fdf4}
@@ -205,9 +208,10 @@ whereverwhenever</pre>
     <ol><li>iPhone: Settings → Privacy &amp; Security → Developer Mode → on, reboot.</li><li>Windows: install the <i>Apple Devices</i> app from the Store for the USB driver.</li><li>First run: <span class="mono">pymobiledevice3 mounter auto-mount</span></li></ol>
    </div>
    <div class="sec">
-    <div class="row" style="margin-top:0"><input id="q" type="text" placeholder="Place, address, or lat, lng"><button onclick="search()">Find</button></div>
+    <div class="row" style="margin-top:0;flex-wrap:nowrap"><input id="q" type="text" placeholder="Place, address, or lat, lng"><button onclick="search()">Find</button></div>
     <div id="ai" style="display:none;margin-top:8px"><textarea id="aiText" placeholder="Or describe it: gym for an hour, coffee at Blue Bottle, then home, by bike"></textarea>
      <div class="row"><span id="aiNote" class="grow"></span><button id="aiBtn" onclick="aiPlan()">Plan with Claude</button></div></div>
+    <div id="aiOff" style="display:none;margin-top:8px;font-size:12px;color:var(--faint)">Want to type the trip in words? Put an Anthropic API key in <span class="mono">~/.whereverwhenever/key</span> and restart the bridge.</div>
    </div>
    <div class="sec">
     <h2>Phone <span id="phoneSub" class="mono"></span></h2>
@@ -218,7 +222,7 @@ whereverwhenever</pre>
    <div class="sec">
     <h2>Itinerary <span id="legLbl"></span></h2>
     <table id="stops"></table>
-    <div class="row"><button id="addBtn" onclick="toggleAdd()">+ Add stop</button><button onclick="useCurrent()" title="start from where the phone is">Start from pin</button><span class="grow"></span><button class="quiet" onclick="resetTrip()">Clear</button></div>
+    <div class="row"><button id="addBtn" onclick="toggleAdd()">+ Add stop</button><button onclick="useCurrent()" title="start from where the phone is">From pin</button><span class="grow"></span><button class="quiet" id="shareBtn" onclick="shareLink()" title="copy a link to this itinerary">Share</button><button class="quiet" onclick="resetTrip()">Clear</button></div>
     <div class="row"><div class="seg"><button data-mode="walk" onclick="chip(this)">Walk</button><button data-mode="bike" onclick="chip(this)">Bike</button><button data-mode="drive" class="sel" onclick="chip(this)">Drive</button></div>
      <input id="speed" type="number" min="0.5" step="1" placeholder="auto" style="width:66px"><span style="color:var(--mut)">mph</span><span class="grow"></span><label class="ck"><input type="checkbox" id="loop" onchange="invalidate()">loop</label></div>
     <div id="tripInfo"></div>
@@ -226,7 +230,7 @@ whereverwhenever</pre>
    </div>
    <div class="sec"><h2>Saved</h2><ul class="list" id="saved"></ul></div>
    <div class="sec"><h2>Recent</h2><ul class="list" id="recent"></ul></div>
-   <div id="hint">Click the map to teleport. Add stops, <b>Plan route</b> to see the speed profile the phone will follow, <b>Go</b> to run it. <kbd>Esc</kbd> cancels, <kbd>Enter</kbd> confirms.</div>
+   <div id="hint">Click the map to teleport. Add stops, <b>Plan route</b> to see the speed profile the phone will follow, <b>Go</b> to run it. <kbd>/</kbd> search, <kbd>Esc</kbd> cancels, <kbd>Enter</kbd> confirms or goes.</div>
   </div>
   <div id="main">
    <div id="map"></div>
@@ -291,14 +295,19 @@ const boot={lines:{},done:false,
     boot.set('engine','motion engine',`ok · ${st.ai?'Claude planner on':'planner off (no API key)'}`,'ok');
     boot.phone(st);
     if(!st.status.startsWith('ok')){$('introMsg').textContent='Plug in and unlock the phone, or continue without it.';
-      for(let i=0;i<40&&!boot.done;i++){await new Promise(r=>setTimeout(r,500));try{st=await (await api('/status')).json();}catch(e){break;}boot.phone(st);if(st.status.startsWith('ok'))break;}}
+      for(let i=0;i<16&&!boot.done;i++){await new Promise(r=>setTimeout(r,500));try{st=await (await api('/status')).json();}catch(e){break;}boot.phone(st);if(st.status.startsWith('ok'))break;}}
+      startView(st);
     if(!boot.done){boot.set('ready','ready','','ok');setTimeout(()=>boot.finish(),700);}
   },
   phone(st){const ok=st.status.startsWith('ok');const nod=st.status==='ok: no-device mode';
-    boot.set('phone','phone',ok?(nod?'none (UI test mode)':`${st.device||'connected'} · ${st.status.replace('ok: ','')}`):st.status.replace(/^err: /,''),ok?(nod?'wait':'ok'):'wait');},
+    boot.set('phone','phone',ok?(nod?'none (UI test mode)':`${st.device||'connected'} · ${st.status.replace('ok: ','')}`):human(st.status),ok?(nod?'wait':'ok'):'wait');},
   async waitBridge(){for(let i=0;i<600&&!boot.done;i++){await new Promise(r=>setTimeout(r,1000));try{await api('/status');boot.lines={};$('boot').innerHTML='';return boot.run();}catch(e){}}},
   finish(){if(boot.done)return;boot.done=true;$('intro').classList.add('gone');setTimeout(()=>map.resize(),600);}
 };
+function startView(st){
+  const p=st&&st.applied||(load('recent')[0]&&[load('recent')[0].lat,load('recent')[0].lng]);
+  if(p)map.jumpTo({center:[p[1],p[0]],zoom:13});
+}
 function type(t){let i=0;const e=$('tagT');e.textContent='';const id=setInterval(()=>{e.textContent=t.slice(0,++i);if(i>=t.length)clearInterval(id);},28);}
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!boot.done)boot.finish();});
 
@@ -365,8 +374,9 @@ map.on('rotate',()=>{if(marker&&cur)place(cur[0],cur[1],lastHdg);});
 let lastHdg=null;
 document.addEventListener('keydown',e=>{
   if(['INPUT','TEXTAREA'].includes(e.target.tagName))return;
-  if(e.key==='Escape'){cancelPreview();if(adding)toggleAdd();}
-  if(e.key==='Enter'&&preview&&boot.done)confirmPreview();
+  if(e.key==='/'){e.preventDefault();$('q').focus();$('q').select();return;}
+  if(e.key==='Escape'){cancelPreview();if(adding)toggleAdd();if(sim.on)sim.toggle();}
+  if(e.key==='Enter'&&boot.done){if(preview)confirmPreview();else if(planned&&!running)startTrip();}
 });
 
 // ---------- geocoding ----------
@@ -425,8 +435,23 @@ function renderStops(curLeg){
     tr.querySelector('.n').onclick=()=>map.flyTo({center:[s.lng,s.lat],duration:600});
     t.appendChild(tr);});
 }
+let hashT=null, hashRead=false;
+function writeHash(){if(!hashRead)return;clearTimeout(hashT);hashT=setTimeout(()=>{
+  if(!stops.length){history.replaceState(null,'',location.pathname+location.search);return;}
+  const h='#s='+stops.map(s=>`${s.lat.toFixed(5)},${s.lng.toFixed(5)},${Math.round(s.dwell_s)}${s.name?','+encodeURIComponent(s.name.slice(0,40)):''}`).join(';')+'&m='+mode+($('loop').checked?'&loop=1':'')+($('speed').value?'&v='+$('speed').value:'');
+  history.replaceState(null,'',h);},300);}
+async function readHash(){
+  const h=new URLSearchParams(location.hash.slice(1)); if(!h.get('s'))return false;
+  mode=['walk','bike','drive'].includes(h.get('m'))?h.get('m'):'drive';
+  document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('sel',x.dataset.mode===mode));
+  $('loop').checked=h.get('loop')==='1'; $('speed').value=h.get('v')||'';
+  for(const part of h.get('s').split(';')){const [la,ln,dw,nm]=part.split(',');if(isFinite(+la)&&isFinite(+ln))await addStop(+la,+ln,nm?decodeURIComponent(nm):'',+dw||0);}
+  if(stops.length)fitTo(stops.map(s=>[s.lat,s.lng]),80);
+  return true;
+}
+function shareLink(){writeHash();setTimeout(()=>{navigator.clipboard.writeText(location.href);toast('Link copied: this itinerary');},350);}
 function updateTrip(){
-  renderStops(-1);
+  renderStops(-1); writeHash();
   $('planBtn').disabled=stops.length<2||running;
   $('goBtn').disabled=!planned||running;
   $('addBtn').textContent=adding?'Click the map… (Esc to stop)':'+ Add stop';
@@ -544,8 +569,9 @@ function hover(s){
 }
 function liveCursor(t){
   const d=chartD; if(!d||!chartX)return;
-  const s=t.s||0; $('cur').setAttribute('x1',chartX(s));$('cur').setAttribute('x2',chartX(s));$('cur').setAttribute('visibility','visible');
-  $('passed').setAttribute('width',Math.max(0,chartX(s)-chartX(0)));
+  const s=t.s||0, c=$('cur'), pa=$('passed'); if(!c||!pa)return;
+  c.setAttribute('x1',chartX(s));c.setAttribute('x2',chartX(s));c.setAttribute('visibility','visible');
+  pa.setAttribute('width',Math.max(0,chartX(s)-chartX(0)));
   if(d._cum){const i=d._cum.findIndex(c=>c>s);const pts=d.route.slice(0,i<0?d.route.length:i);pts.push(pointAt(d,s));setLine('done',pts);}
 }
 
@@ -582,6 +608,17 @@ const sim={map:null,dot:null,on:false,last:null,
 };
 setInterval(()=>{$('simClock').textContent=new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}).replace(/ ?[AP]M/,'');},1000);
 
+function human(st){
+  const k={'ok: holding':'holding spoofed location','ok: connected':'connected, real GPS','ok: moving':'moving','ok: no-device mode':'no phone (UI test mode)'};
+  if(k[st])return k[st];
+  if(/NoDeviceConnected/.test(st))return 'no phone plugged in';
+  if(/PasscodeRequired|locked|LockdownError/i.test(st))return 'unlock the phone';
+  if(/DeveloperMode|amfi/i.test(st))return 'turn on Developer Mode on the phone';
+  if(/DeviceImage|mounter|DDI|cryptex/i.test(st))return 'developer image missing: run pymobiledevice3 mounter auto-mount';
+  if(/Pair|TrustError|NotTrusted/i.test(st))return 'tap Trust on the phone';
+  if(/connecting/.test(st))return st;
+  return st.replace(/^err: /,'').replace(/^\w+Error:\s*/,'');
+}
 // ---------- poll ----------
 let bridgeOk=null;
 function setBridge(ok){
@@ -594,9 +631,9 @@ async function poll(){
   setBridge(true);
   const ok=s.status.startsWith('ok'), err=s.status.startsWith('err');
   $('dot').className=(ok?'ok':(err?'bad':'warn'))+(s.status==='ok: moving'?' moving':'');
-  $('stText').textContent={'ok: holding':'holding spoofed location','ok: connected':'connected, real GPS','ok: moving':'moving','ok: no-device mode':'no phone (UI test mode)'}[s.status]||s.status.replace(/^err: /,'');
+  $('stText').textContent=human(s.status);
   $('device').textContent=s.device||'';
-  $('ai').style.display=s.ai?'block':'none';
+  $('ai').style.display=s.ai?'block':'none'; $('aiOff').style.display=s.ai?'none':'block';
   $('coords').classList.toggle('live',!!s.applied);
   const t=s.trip;
   if(t){
@@ -630,4 +667,5 @@ function renderLists(){
 }
 window.addEventListener('resize',()=>{if(chartD)drawProfile(chartD);});
 renderLists(); updateTrip(); boot.run(); setInterval(poll,1000); poll();
+readHash().then(ok=>{hashRead=true;if(ok)toast('Itinerary loaded from the link');});
 </script></body></html>
