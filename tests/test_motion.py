@@ -4,8 +4,8 @@ import random
 
 import pytest
 
-import motion
-from motion import PROFILES, Leg, Stop, Trajectory, build, haversine_m
+from whereverwhenever import motion
+from whereverwhenever.motion import PROFILES, Leg, Stop, Trajectory, build, haversine_m
 
 BERK = (37.8716, -122.2727)
 OAK = (37.8044, -122.2712)

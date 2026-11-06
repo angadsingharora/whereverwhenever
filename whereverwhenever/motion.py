@@ -82,7 +82,7 @@ def fetch_route(a, b, profile: Profile, timeout=20):
     url = (f"https://routing.openstreetmap.de/routed-{profile.osrm}/route/v1/driving/"
            f"{a[1]:.6f},{a[0]:.6f};{b[1]:.6f},{b[0]:.6f}"
            "?overview=full&geometries=geojson&steps=true")
-    req = urllib.request.Request(url, headers={"User-Agent": "geofake/1.0 (location simulation testing)"})
+    req = urllib.request.Request(url, headers={"User-Agent": "whereverwhenever/0.2 (location simulation testing)"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         j = json.load(r)
     if j.get("code") != "Ok" or not j.get("routes"):
@@ -185,6 +185,7 @@ class Trajectory:
                 jit = rng.uniform(-p.jitter, p.jitter)
                 kjit = S[i] + rng.uniform(150, 400)
             v[i] = self.cruise * (1 + jit)
+        corners = {}  # vertex -> (turn angle deg, capped speed) where the bend limit actually bit
         for i in range(1, n - 1):
             if d[i - 1] <= 0 or d[i] <= 0:
                 continue
@@ -192,15 +193,21 @@ class Trajectory:
             if dth < 2:
                 continue
             kappa = math.radians(dth) / max(1.0, (d[i - 1] + d[i]) / 2)
-            v[i] = min(v[i], math.sqrt(p.lat_acc / kappa))
+            cap = math.sqrt(p.lat_acc / kappa)
             if dth > 70:
-                v[i] = min(v[i], p.turn_speed)
+                cap = min(cap, p.turn_speed)
+            if cap < v[i] * 0.7:
+                corners[i] = (dth, cap)
+            v[i] = min(v[i], cap)
 
         # 2) forced stops: itinerary stops always, lights sometimes
         stop_dwell = dict(dwell_at)
+        lights_hit = {}
         for i in sorted(light_at):
             if rng.random() < p.stop_p:
-                stop_dwell[i] = max(stop_dwell.get(i, 0.0), rng.uniform(*p.stop_s))
+                lights_hit[i] = rng.uniform(*p.stop_s)
+                stop_dwell[i] = max(stop_dwell.get(i, 0.0), lights_hit[i])
+        self.n_maneuvers = len(light_at)
         v[0] = 0.0
         v[-1] = 0.0
         for i in stop_dwell:
@@ -224,6 +231,27 @@ class Trajectory:
         self.total_s = T[-1]
         self.total_m = S[-1]
         self.leg_start_m = [S[i] for i in self.leg_start_s]
+        # 5) things worth showing: where and why the speed profile dips
+        t_at = {}
+        for t, s in zip(T, KS):
+            t_at.setdefault(s, t)
+        ev = []
+        stop_v = {self.leg_start_s[li]: li for li in range(len(self.leg_start_s))}
+        ends = {len(ll) - 1: len(self.legs)}
+        for i, dw in dwell_at.items():
+            li = stop_v.get(i, ends.get(i))
+            if li is None:
+                continue
+            st = self.stops[li % len(self.stops)]
+            ev.append({"s": S[i], "t": t_at.get(S[i], 0.0), "kind": "stop", "dwell_s": dw,
+                       "label": st.name or chr(65 + li % 26)})
+        for i, dw in lights_hit.items():
+            ev.append({"s": S[i], "t": t_at.get(S[i], 0.0), "kind": "light", "dwell_s": dw})
+        for i, (dth, cap) in corners.items():
+            ev.append({"s": S[i], "t": t_at.get(S[i], 0.0), "kind": "corner", "deg": round(dth), "cap": cap})
+        self.events = sorted(ev, key=lambda e: e["s"])
+        self.dwell_total = sum(stop_dwell.values())
+        self.v_max = max(v)
 
     # -- queries -----------------------------------------------------------
     def state_at(self, t):
@@ -238,13 +266,14 @@ class Trajectory:
         s0, s1, v0, v1 = self.KS[k], self.KS[k + 1], self.KV[k], self.KV[k + 1]
         dt = t1 - t0
         if dt <= 0:
-            s, v = s1, v1
+            s, v, a = s1, v1, 0.0
         else:
             tau = t - t0
             a = (v1 - v0) / dt
             s = s0 + v0 * tau + 0.5 * a * tau * tau
             v = v0 + a * tau
             s = min(max(s0, s), s1)
+        self._last_accel = a
         return s, max(0.0, v)
 
     def point_at_m(self, s):
@@ -268,16 +297,35 @@ class Trajectory:
             lat, lng = self.frame.to_ll(x + nx, y + ny)
         leg = max(0, bisect.bisect_right(self.leg_start_m, s + 1e-6) - 1)
         leg = min(leg, len(self.legs) - 1)
-        return {"lat": lat, "lng": lng, "heading": hdg, "speed": v, "s": s, "leg": leg,
-                "progress": (s / self.total_m) if self.total_m else 1.0}
+        return {"lat": lat, "lng": lng, "heading": hdg, "speed": v, "accel": self._last_accel, "s": s,
+                "leg": leg, "progress": (s / self.total_m) if self.total_m else 1.0}
+
+    def profile_points(self, max_pts=700):
+        """Keyframes thinned for plotting: [[s, v, t], ...]. Keeps every zero-speed point so
+        stops and lights stay visible, decimates the rest."""
+        n = len(self.KS)
+        step = max(1, n // max_pts)
+        out = []
+        for i in range(n):
+            if i % step == 0 or self.KV[i] == 0.0 or i == n - 1 or (i and self.KV[i - 1] == 0.0):
+                out.append([round(self.KS[i], 1), round(self.KV[i], 2), round(self.T[i], 1)])
+        return out
 
     def describe(self):
+        p = self.profile
         return {"total_m": self.total_m, "total_s": self.total_s, "loop": self.loop,
-                "mode": self.profile.name, "cruise": self.cruise, "seed": self.seed,
+                "mode": p.name, "cruise": self.cruise, "seed": self.seed,
                 "route": [[round(a, 6), round(b, 6)] for a, b in self.ll],
                 "straight_legs": sum(1 for l in self.legs if l.straight),
                 "leg_start_m": self.leg_start_m,
-                "stops": [{"lat": s.lat, "lng": s.lng, "name": s.name, "dwell_s": s.dwell_s} for s in self.stops]}
+                "stops": [{"lat": s.lat, "lng": s.lng, "name": s.name, "dwell_s": s.dwell_s} for s in self.stops],
+                "profile": self.profile_points(),
+                "events": self.events,
+                "stats": {"v_max": self.v_max, "dwell_s": self.dwell_total, "moving_s": self.total_s - self.dwell_total,
+                          "maneuvers": self.n_maneuvers, "lights": sum(1 for e in self.events if e["kind"] == "light"),
+                          "corners": sum(1 for e in self.events if e["kind"] == "corner"),
+                          "accel": p.accel, "decel": p.decel, "lat_acc": p.lat_acc, "gps_sigma": p.gps_sigma,
+                          "jitter": p.jitter, "stop_p": p.stop_p}}
 
     # -- (de)serialisation so a restart does not need the network -------------
     def to_json(self):

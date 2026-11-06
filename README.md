@@ -35,50 +35,54 @@ whereverwhenever does three things:
    session lives. Drop the cable, sleep the PC, kill the script, and real GPS is back
    within seconds. whereverwhenever reconnects and re-applies the last pin on any drop.
 
-## Setup
-
-1. iPhone: Settings > Privacy & Security > Developer Mode > on. Reboot, confirm.
-   If the toggle isn't there: plug in, then `pymobiledevice3 amfi reveal-developer-mode`.
-2. Windows only: install the **Apple Devices** app (Microsoft Store) or iTunes for
-   the USB driver.
-3. PC, phone plugged in, unlocked, trusted:
-   ```
-   pip install -U pymobiledevice3
-   pymobiledevice3 mounter auto-mount
-   ```
-
 ## Use
 
-Map UI:
-```
-python geoweb.py
-```
-Open http://127.0.0.1:8765. Click the map to drop a pin, hit **Teleport**. Drag to
-fine-tune. Search a place name or paste `lat, lng`. Star a spot to save it. **Real GPS**
-clears the spoof. Ctrl+C in the terminal also clears it.
+Phone plugged in and unlocked, then:
 
-**Itinerary:** add stops (click the map with **+ Stop** on, search, or **From pin** to start
-where the phone is), set how many minutes to linger at each, pick Walk / Bike / Drive,
-optionally a cruise speed in mph, optionally **Loop**, hit **Start**. The route is fetched
-from OpenStreetMap roads for that mode, and the phone moves along it with the motion
-model below. Live speed, heading, time left, and the next stop are shown. **Stop here**
-freezes it wherever it is. The server does the moving, so the tab can be closed; the
-running itinerary is saved to `state.json` and resumed after a restart or reboot at the
-right point in time.
-
-CLI:
 ```
-python geofake.py pin 37.8716 -122.2727
-python geofake.py go 37.8716 -122.2727 37.8044 -122.2712 --mode drive   # A to B on roads, hold at B
-python geofake.py plan day.json --mode walk --loop   # [{lat,lng,name,dwell_s}, ...] round and round
-python geofake.py walk route.gpx --speed 1.4         # raw GPX track, no motion model
-python geofake.py clear
+pip install git+https://github.com/angadsingharora/whereverwhenever
+whereverwhenever
+```
+
+That starts the **bridge**, the one local process that talks to the phone, and opens the
+UI. The same UI is hosted at **https://whereverwhenever.vercel.app** and talks to the bridge
+on your machine; if the bridge isn't running the site tells you how to start it.
+
+First time only: iPhone Settings > Privacy & Security > Developer Mode > on, reboot
+(if the toggle is missing: `pymobiledevice3 amfi reveal-developer-mode`). Windows needs
+the **Apple Devices** app from the Store for the USB driver. Then
+`pymobiledevice3 mounter auto-mount` once.
+
+**Teleport:** click the map, **Teleport**. Search a place or paste `lat, lng`.
+
+**Itinerary:** add stops (click the map with **+ Add stop** on, search, or **Start from
+pin**), set minutes to linger at each, Walk / Bike / Drive, optional cruise mph, optional
+loop. **Plan route** fetches real roads and draws the speed profile the phone will follow,
+with every stop, red light and corner-limited bend marked; hover it to see where on the map
+that is. **Go** runs it. Live speed, acceleration, heading, next stop, and a cursor on the
+profile. **Stop here** freezes it. The bridge does the moving, so the tab can be closed;
+a running itinerary is saved to `~/.whereverwhenever/state.json` and resumes mid-route
+after a restart.
+
+**Plan in words:** with `ANTHROPIC_API_KEY` set and `pip install anthropic`, a text box
+appears: "gym for an hour, coffee at Blue Bottle, then home, by bike". Claude (Opus 5.5)
+turns it into stops, mode and dwell times; the bridge geocodes each place itself, so the
+model never invents coordinates. You review the stops before anything moves.
+
+CLI (same engine, no UI):
+```
+whereverwhenever-cli pin 37.8716 -122.2727
+whereverwhenever-cli go 37.8716 -122.2727 37.8044 -122.2712 --mode drive   # A to B on roads, hold at B
+whereverwhenever-cli plan day.json --mode walk --loop   # [{lat,lng,name,dwell_s}, ...] round and round
+whereverwhenever-cli walk route.gpx --speed 1.4         # raw GPX track, no motion model
+whereverwhenever-cli clear
 ```
 `--seed N` replays the exact same lights, pauses and drift. `--straight` skips routing (offline).
+From a checkout, `python geoweb.py` and `python geofake.py` do the same.
 
 ## Motion model
 
-`motion.py` turns a list of stops into a position-as-a-function-of-time that is
+`whereverwhenever/motion.py` turns a list of stops into a position-as-a-function-of-time that is
 deterministic from a seed, so "where should the phone be at 14:07:32" has one answer on
 any machine. Pipeline, per itinerary:
 
@@ -166,7 +170,8 @@ channel, same limits).
 
 ## Files
 
-- `motion.py`: routing + motion model + GPS drift, deterministic and serialisable
-- `geoweb.py` + `page.html`: local web server and map UI (teleport and itineraries)
-- `geofake.py`: CLI (`pin`, `go`, `plan`, `walk`, `clear`) and the shared `Session` class
+- `whereverwhenever/motion.py`: routing + motion model + GPS drift, deterministic and serialisable
+- `whereverwhenever/server.py`: the bridge (HTTP API, device loop, persistence, AI planner)
+- `whereverwhenever/page.html`: the UI; `site/index.html` is the copy Vercel serves
+- `whereverwhenever/cli.py`: CLI and the shared `Session` class
 - `tests/test_motion.py`: offline checks on the motion model

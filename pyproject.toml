@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whereverwhenever"
+version = "0.2.0"
+description = "Your iPhone, wherever, whenever. Location spoofing with a motion model that moves like a real person."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["pymobiledevice3>=11.0"]
+
+[project.optional-dependencies]
+ai = ["anthropic>=1.0"]
+dev = ["pytest"]
+
+[project.scripts]
+whereverwhenever = "whereverwhenever.server:main"
+whereverwhenever-cli = "whereverwhenever.cli:main"
+
+[tool.setuptools]
+packages = ["whereverwhenever"]
+
+[tool.setuptools.package-data]
+whereverwhenever = ["page.html"]
