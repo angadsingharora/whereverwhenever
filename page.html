@@ -1,0 +1,173 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>geofake</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+ :root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--fg:#e8eaf0;--mut:#8b93a7;--acc:#4f8cff;--ok:#3ddc84;--bad:#ff5c5c;--warn:#ffc857}
+ *{box-sizing:border-box}
+ html,body{margin:0;height:100%;font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
+ #app{display:grid;grid-template-columns:320px 1fr;height:100%}
+ #side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+ #map{height:100%}
+ h1{font-size:18px;margin:0;padding:16px 16px 4px;letter-spacing:.3px}
+ h1 small{color:var(--mut);font-weight:400;font-size:12px;margin-left:6px}
+ .sec{padding:12px 16px;border-top:1px solid var(--line)}
+ .sec h2{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);margin:0 0 8px}
+ #search{display:flex;gap:6px;padding:8px 16px 12px}
+ #q{flex:1;padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:#0f1115;color:var(--fg);font-size:14px;outline:none}
+ #q:focus{border-color:var(--acc)}
+ button{padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:#1f2430;color:var(--fg);cursor:pointer;font-size:13px}
+ button:hover{background:#2a3040}
+ button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+ button.primary:hover{filter:brightness(1.1)}
+ button.danger{color:var(--bad)}
+ button:disabled{opacity:.4;cursor:default}
+ #status{display:flex;align-items:center;gap:10px}
+ .dot{width:10px;height:10px;border-radius:50%;background:var(--warn);flex:none}
+ .dot.ok{background:var(--ok);box-shadow:0 0 0 4px #3ddc8433}
+ .dot.bad{background:var(--bad)}
+ #stText{font-weight:600}
+ #device{color:var(--mut);font-size:12px}
+ #coords{font-family:ui-monospace,Consolas,monospace;font-size:13px;background:#0f1115;border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+ #coords span{color:var(--mut)}
+ #coords.live{border-color:var(--ok)}
+ #place{color:var(--mut);font-size:12px;margin-top:6px;min-height:16px}
+ .row{display:flex;gap:6px;margin-top:10px}
+ .row button{flex:1}
+ ul{list-style:none;margin:0;padding:0;max-height:180px;overflow:auto}
+ li{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer}
+ li:hover{background:#1f2430}
+ li .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ li .c{color:var(--mut);font-size:11px;font-family:ui-monospace,Consolas,monospace}
+ li .x{color:var(--mut);padding:0 4px}
+ li .x:hover{color:var(--bad)}
+ .empty{color:var(--mut);font-size:12px;padding:4px 8px}
+ #hint{margin-top:auto;padding:12px 16px;color:var(--mut);font-size:12px;border-top:1px solid var(--line)}
+ kbd{background:#0f1115;border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px}
+ #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#1f2430;border:1px solid var(--line);padding:10px 16px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;z-index:2000;box-shadow:0 8px 30px #000a}
+ #toast.show{opacity:1;transform:translateX(-50%)}
+ .pulse{width:22px;height:22px;border-radius:50%;background:var(--acc);border:3px solid #fff;box-shadow:0 0 0 0 #4f8cff99;animation:p 1.6s infinite}
+ @keyframes p{0%{box-shadow:0 0 0 0 #4f8cff99}100%{box-shadow:0 0 0 18px #4f8cff00}}
+ .ghost{width:22px;height:22px;border-radius:50%;background:#ffc857;border:3px solid #fff;box-shadow:0 2px 10px #0008}
+ .pop{display:flex;gap:6px;margin-top:8px}.pop button{flex:1;padding:6px 8px}
+ .leaflet-container{background:#0f1115}
+ .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--fg);box-shadow:0 4px 20px #000a}
+ .leaflet-popup-content{margin:10px 12px;font-size:13px}
+ .leaflet-popup-content b{display:block;margin-bottom:6px}
+ @media(max-width:760px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}#side{max-height:45vh;border-right:0;border-bottom:1px solid var(--line)}}
+</style></head><body>
+<div id="app">
+ <div id="side">
+  <h1>geofake <small>iPhone location</small></h1>
+  <div id="search"><input id="q" placeholder="Search a place or paste lat, lng"><button class="primary" onclick="search()">Go</button></div>
+  <div class="sec">
+   <h2>Phone</h2>
+   <div id="status"><div class="dot" id="dot"></div><div><div id="stText">connecting…</div><div id="device"></div></div></div>
+   <div id="coords"><span>no spoof</span><b id="cv"></b></div>
+   <div id="place"></div>
+   <div class="row"><button id="saveBtn" onclick="saveCurrent()" disabled>★ Save spot</button><button id="copyBtn" onclick="copyCoords()" disabled>Copy</button><button class="danger" onclick="clearLoc()">Real GPS</button></div>
+  </div>
+  <div class="sec"><h2>Saved</h2><ul id="saved"></ul></div>
+  <div class="sec"><h2>Recent</h2><ul id="recent"></ul></div>
+  <div id="hint">Click the map to drop a pin, then <b>Teleport</b> to move the phone. Drag either pin to fine-tune. <kbd>Esc</kbd> cancels, <kbd>Enter</kbd> confirms.</div>
+ </div>
+ <div id="map"></div>
+</div>
+<div id="toast"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map',{worldCopyJump:true,zoomControl:false}).setView([30,0],2);
+L.control.zoom({position:'bottomright'}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+const icon=L.divIcon({className:'',html:'<div class="pulse"></div>',iconSize:[22,22],iconAnchor:[11,11],popupAnchor:[0,-14]});
+let marker=null, cur=null, placeName='';
+const $=id=>document.getElementById(id);
+const fmt=(a,b)=>`${a.toFixed(5)}, ${b.toFixed(5)}`;
+const load=k=>{try{return JSON.parse(localStorage.getItem(k)||'[]')}catch(e){return[]}};
+const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('show'),1800);}
+
+function place(lat,lng){
+  if(!marker){marker=L.marker([lat,lng],{draggable:true,icon}).addTo(map);
+    marker.on('dragend',e=>{const p=e.target.getLatLng();setLoc(p.lat,p.lng);});}
+  else marker.setLatLng([lat,lng]);
+  const html=`<b>${placeName||'Spoofed location'}</b>${fmt(lat,lng)}`;
+  if(marker.getPopup())marker.setPopupContent(html);else marker.bindPopup(html);
+}
+async function setLoc(lat,lng,name){
+  cur=[lat,lng]; placeName=name||''; place(lat,lng);
+  $('cv').textContent=fmt(lat,lng); $('coords').querySelector('span').textContent='pin';
+  $('saveBtn').disabled=$('copyBtn').disabled=false;
+  await fetch('/set',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({lat,lng})});
+  pushRecent(lat,lng,name); if(!name) reverse(lat,lng); else $('place').textContent=name;
+  toast('Phone moved'); poll();
+}
+async function clearLoc(){
+  await fetch('/clear',{method:'POST'});
+  if(marker){map.removeLayer(marker);marker=null;} cur=null;
+  $('cv').textContent=''; $('coords').querySelector('span').textContent='no spoof'; $('place').textContent='';
+  $('saveBtn').disabled=$('copyBtn').disabled=true; toast('Back to real GPS'); poll();
+}
+let preview=null;
+const previewIcon=L.divIcon({className:'',html:'<div class="ghost"></div>',iconSize:[22,22],iconAnchor:[11,11],popupAnchor:[0,-14]});
+function previewHtml(lat,lng){return `<b>Move phone here?</b>${fmt(lat,lng)}<div class="pop"><button class="primary" onclick="confirmPreview()">Teleport</button><button onclick="cancelPreview()">Cancel</button></div>`;}
+function showPreview(lat,lng){
+  map.closePopup();
+  if(!preview){preview=L.marker([lat,lng],{draggable:true,icon:previewIcon}).addTo(map);
+    preview.bindPopup(previewHtml(lat,lng),{closeButton:false,autoClose:false,closeOnClick:false});
+    preview.on('dragend',e=>{const q=e.target.getLatLng();showPreview(q.lat,q.lng);});}
+  else{preview.setLatLng([lat,lng]);preview.setPopupContent(previewHtml(lat,lng));}
+  preview.openPopup();
+}
+function cancelPreview(){if(preview){preview.closePopup();map.removeLayer(preview);preview=null;}map.closePopup();}
+function confirmPreview(){if(!preview)return;const q=preview.getLatLng();cancelPreview();setLoc(q.lat,q.lng);}
+map.on('click',e=>showPreview(e.latlng.lat,e.latlng.lng));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cancelPreview();if(e.key==='Enter'&&preview&&document.activeElement!==$('q'))confirmPreview();});
+
+async function reverse(lat,lng){
+  try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=16&lat=${lat}&lon=${lng}`);
+    const j=await r.json(); if(cur&&cur[0]===lat){placeName=j.display_name||'';$('place').textContent=placeName;place(lat,lng);
+      const rc=load('recent'); if(rc[0]&&rc[0].lat===lat){rc[0].name=placeName;save('recent',rc);renderLists();}}}catch(e){}
+}
+async function search(){
+  const q=$('q').value.trim(); if(!q)return;
+  const m=q.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
+  if(m){const la=+m[1],ln=+m[3];map.setView([la,ln],15);showPreview(la,ln);return;}
+  const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q));
+  const j=await r.json(); if(!j.length){toast('Not found');return;}
+  const la=+j[0].lat,ln=+j[0].lon; map.setView([la,ln],15); showPreview(la,ln);
+}
+$('q').addEventListener('keydown',e=>{if(e.key==='Enter')search();});
+
+function pushRecent(lat,lng,name){
+  let rc=load('recent').filter(r=>!(Math.abs(r.lat-lat)<1e-6&&Math.abs(r.lng-lng)<1e-6));
+  rc.unshift({lat,lng,name:name||''}); save('recent',rc.slice(0,8)); renderLists();
+}
+function saveCurrent(){
+  if(!cur)return; const n=prompt('Name this spot',placeName.split(',')[0]||'Spot'); if(n===null)return;
+  const sv=load('saved'); sv.unshift({lat:cur[0],lng:cur[1],name:n}); save('saved',sv); renderLists(); toast('Saved');
+}
+function delSaved(i){const sv=load('saved');sv.splice(i,1);save('saved',sv);renderLists();}
+function copyCoords(){if(cur){navigator.clipboard.writeText(fmt(cur[0],cur[1]));toast('Copied');}}
+function renderLists(){
+  for(const [k,id] of [['saved','saved'],['recent','recent']]){
+    const l=load(k), ul=$(id); ul.innerHTML='';
+    if(!l.length){ul.innerHTML=`<div class="empty">${k==='saved'?'Save a spot to get a one-click shortcut':'Nothing yet'}</div>`;continue;}
+    l.forEach((r,i)=>{const li=document.createElement('li');
+      li.innerHTML=`<span class="n">${r.name||fmt(r.lat,r.lng)}</span><span class="c">${r.name?fmt(r.lat,r.lng):''}</span>`+(k==='saved'?`<span class="x" title="remove">✕</span>`:'');
+      li.onclick=()=>{map.setView([r.lat,r.lng],Math.max(map.getZoom(),14));setLoc(r.lat,r.lng,r.name);};
+      if(k==='saved'){li.querySelector('.x').onclick=e=>{e.stopPropagation();delSaved(i);};}
+      ul.appendChild(li);});
+  }
+}
+async function poll(){
+  try{const s=await (await fetch('/status')).json();
+    const d=$('dot'); d.className='dot '+(s.status.startsWith('ok')?'ok':(s.status.startsWith('err')?'bad':''));
+    const label={'ok: holding':'Holding spoofed location','ok: connected':'Connected, real GPS','ok: no-device mode':'UI test mode (no phone)'}[s.status]||s.status.replace(/^err: /,'');
+    $('stText').textContent=label; $('device').textContent=s.device||'';
+    $('coords').classList.toggle('live',!!s.applied);
+    if(s.applied&&!cur){cur=s.applied;place(cur[0],cur[1]);$('cv').textContent=fmt(cur[0],cur[1]);$('coords').querySelector('span').textContent='pin';$('saveBtn').disabled=$('copyBtn').disabled=false;}
+  }catch(e){$('dot').className='dot bad';$('stText').textContent='Server not reachable';}
+}
+renderLists(); setInterval(poll,2000); poll();
+</script></body></html>
