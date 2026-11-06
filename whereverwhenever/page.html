@@ -316,7 +316,17 @@ const map=new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.o
 map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
 let layersReady=false; const pendingData={};
 const EMPTY={type:'FeatureCollection',features:[]};
+// Positron is grey on purpose; warm it up: paper background, blue water, green parks, cream roads.
+const TINT={background:['background-color','#f8f6f1'],park:['fill-color','#cfe6c3'],landcover_wood:['fill-color','#c3dcb4'],
+  landuse_residential:['fill-color','#f1ede6'],water:['fill-color','#a8d0ee'],waterway:['line-color','#9cc7e8'],building:['fill-color','#e9e3d8'],
+  highway_path:['line-color','#e6e0d4'],highway_minor:['line-color','#ffffff'],highway_major_casing:['line-color','#dfd5c2'],highway_major_inner:['line-color','#fffdf7'],
+  highway_motorway_casing:['line-color','#e3bf6c'],highway_motorway_inner:['line-color','#ffe29a'],highway_motorway_bridge_casing:['line-color','#e3bf6c'],highway_motorway_bridge_inner:['line-color','#ffe29a'],
+  tunnel_motorway_casing:['line-color','#eadcb8'],tunnel_motorway_inner:['line-color','#fff1cc'],railway:['line-color','#d6d0c6'],boundary_2:['line-color','#c9c2b4'],boundary_3:['line-color','#d6d0c6'],
+  'aeroway-area':['fill-color','#f3f0e9'],'aeroway-runway':['line-color','#f3f0e9'],'aeroway-taxiway':['line-color','#ece8df']};
+function vibrant(m){for(const id in TINT){if(m.getLayer(id)){try{m.setPaintProperty(id,TINT[id][0],TINT[id][1]);}catch(e){}}}
+  for(const id of ['park','landcover_wood'])if(m.getLayer(id))m.setPaintProperty(id,'fill-opacity',0.9);}
 map.on('load',()=>{
+  vibrant(map);
   boot.set('tiles','map (OpenFreeMap)',`ok · ${((performance.now()-BOOT_T0)/1000).toFixed(1)} s`,'ok');
   for(const id of ['dash','route','done'])map.addSource(id,{type:'geojson',data:pendingData[id]||EMPTY});
   map.addLayer({id:'dash',type:'line',source:'dash',paint:{'line-color':'#9ca3af','line-width':1.5,'line-dasharray':[2,4]}});
@@ -593,7 +603,7 @@ async function aiPlan(){
 // ---------- simulated iPhone ----------
 const sim={map:null,dot:null,on:false,last:null,
   toggle(){this.on=!this.on;$('sim').classList.toggle('show',this.on);$('simBtn').classList.toggle('on',this.on);
-    if(this.on&&!this.map){this.map=new maplibregl.Map({container:'simMap',style:'https://tiles.openfreemap.org/styles/positron',center:[-122.27,37.87],zoom:14,interactive:false,attributionControl:false});}
+    if(this.on&&!this.map){this.map=new maplibregl.Map({container:'simMap',style:'https://tiles.openfreemap.org/styles/positron',center:[-122.27,37.87],zoom:14,interactive:false,attributionControl:false});this.map.on('load',()=>vibrant(this.map));}
     if(this.on){setTimeout(()=>{this.map.resize();if(this.last)this.update(...this.last,true);},50);}},
   update(s,t,jump){this.last=[s,t]; if(!this.on||!this.map)return;
     const p=s.applied;
