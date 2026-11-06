@@ -373,7 +373,9 @@ async function clearLoc(){
 }
 let preview=null;
 const previewHtml=(lat,lng)=>`<b>Move the phone here?</b><span class="mono">${fmt(lat,lng)}</span><div class="pop"><button class="primary" onclick="confirmPreview()">Teleport</button><button onclick="previewToStop()">Add as stop</button><button class="quiet" onclick="cancelPreview()">Cancel</button></div>`;
-function showPreview(lat,lng){
+let previewName='';
+function showPreview(lat,lng,name){
+  previewName=name||'';
   if(!preview){preview=mk('<div class="ghost"></div>',{draggable:true,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
     preview.setPopup(new maplibregl.Popup({offset:12,closeButton:false,closeOnClick:false}).setHTML(previewHtml(lat,lng)));
     preview.on('dragend',()=>{const q=preview.getLngLat();showPreview(q.lat,q.lng);});}
@@ -381,8 +383,8 @@ function showPreview(lat,lng){
   if(!preview.getPopup().isOpen())preview.togglePopup();
 }
 function cancelPreview(){if(preview){preview.remove();preview=null;}}
-function confirmPreview(){if(!preview)return;const q=preview.getLngLat();cancelPreview();setLoc(q.lat,q.lng);}
-function previewToStop(){if(!preview)return;const q=preview.getLngLat();cancelPreview();addStop(q.lat,q.lng);}
+function confirmPreview(){if(!preview)return;const q=preview.getLngLat(),n=previewName;cancelPreview();setLoc(q.lat,q.lng,n);}
+function previewToStop(){if(!preview)return;const q=preview.getLngLat(),n=previewName;cancelPreview();addStop(q.lat,q.lng,n);}
 map.on('click',e=>{if(adding)addStop(e.lngLat.lat,e.lngLat.lng);else showPreview(e.lngLat.lat,e.lngLat.lng);});
 map.on('rotate',()=>{if(marker&&cur)place(cur[0],cur[1],lastHdg);});
 let lastHdg=null;
@@ -411,7 +413,7 @@ async function search(){
   if(m){la=+m[1];ln=+m[3];}
   else{const c=map.getCenter();const j=await (await fetch(`${NOM}/search?format=json&limit=1&viewbox=${c.lng-.3},${c.lat+.3},${c.lng+.3},${c.lat-.3}&q=`+encodeURIComponent(q))).json();
     if(!j.length){toast('Not found');return;} la=+j[0].lat;ln=+j[0].lon;name=j[0].display_name.split(',')[0];}
-  map.flyTo({center:[ln,la],zoom:15,duration:900}); if(adding)addStop(la,ln,name); else showPreview(la,ln);
+  map.flyTo({center:[ln,la],zoom:15,duration:900}); if(adding)addStop(la,ln,name); else showPreview(la,ln,name);
 }
 $('q').addEventListener('keydown',e=>{if(e.key==='Enter')search();});
 
@@ -648,7 +650,8 @@ function setBridge(ok){
   $('nobridge').style.display=ok?'none':'block';
   if(!ok){$('dot').className='bad';$('stText').textContent=LOCAL?'bridge stopped':'bridge not running on this computer';$('device').textContent='';}
 }
-async function poll(){
+function fitCanvas(){const c=map.getContainer(),k=map.getCanvas();if(c.clientWidth&&(Math.abs(k.clientWidth-c.clientWidth)>1||Math.abs(k.clientHeight-c.clientHeight)>1))map.resize();}
+async function poll(){ fitCanvas();
   let s; try{s=await (await api('/status')).json();}catch(e){setBridge(false);return;}
   setBridge(true);
   const ok=s.status.startsWith('ok'), err=s.status.startsWith('err');

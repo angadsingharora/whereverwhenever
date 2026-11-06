@@ -277,9 +277,11 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         global TRAJ
-        n = int(self.headers.get("content-length") or 0)
-        body = json.loads(self.rfile.read(n) or b"{}")
         try:
+            n = int(self.headers.get("content-length") or 0)
+            body = json.loads(self.rfile.read(min(n, 1 << 20)) or b"{}")
+            if not isinstance(body, dict):
+                return self._json({"error": "bad request: body must be a JSON object"}, 400)
             if self.path == "/set":
                 lat, lng = float(body["lat"]), float(body["lng"])
                 if not (-90 <= lat <= 90 and -180 <= lng <= 180):
@@ -353,7 +355,7 @@ class H(BaseHTTPRequestHandler):
                 reply = {"ok": True}
             else:
                 return self._json({"error": "no"}, 404)
-        except (KeyError, ValueError, TypeError) as e:
+        except (KeyError, ValueError, TypeError, AttributeError, IndexError) as e:
             return self._json({"error": f"bad request: {e}"}, 400)
         save_state()
         LOOP.call_soon_threadsafe(WAKE.set)
@@ -447,8 +449,9 @@ async def fake_loop():
     LOOP = asyncio.get_running_loop()
     WAKE = asyncio.Event()
     while True:
-        await wait_wake(await apply_step(None))
+        wait = await apply_step(None)
         STATE["status"] = STATE["status"].replace("ok: connected", "ok: no-device mode")
+        await wait_wake(wait)
 
 
 def main():
@@ -464,6 +467,13 @@ def main():
     a = p.parse_args()
     link.PREF["mode"] = STATE["link_pref"] = a.link
 
+    try:  # another bridge already here? Windows lets two processes share the port, so ask first
+        with urllib.request.urlopen(f"http://127.0.0.1:{a.port}/status", timeout=1) as r:
+            if b'"version"' in r.read():
+                print(f"a bridge is already running at http://127.0.0.1:{a.port}; use that one, or pass --port", flush=True)
+                return
+    except Exception:
+        pass
     if not a.fresh:
         load_state()
     STATE["ai"] = ai_available()
