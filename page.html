@@ -50,6 +50,24 @@
  @keyframes p{0%{box-shadow:0 0 0 0 #4f8cff99}100%{box-shadow:0 0 0 18px #4f8cff00}}
  .ghost{width:22px;height:22px;border-radius:50%;background:#ffc857;border:3px solid #fff;box-shadow:0 2px 10px #0008}
  .pop{display:flex;gap:6px;margin-top:8px}.pop button{flex:1;padding:6px 8px}
+ .pt{width:24px;height:24px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 10px #0008;color:#fff;font:700 12px/18px system-ui;text-align:center}
+ .pt.a{background:var(--ok)}.pt.b{background:var(--bad)}
+ .ab{display:grid;grid-template-columns:18px 1fr auto;gap:6px;align-items:center;margin-top:6px}
+ .ab .l{font-weight:700;color:var(--mut)}
+ .ab .v{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .ab .v.set{color:var(--fg)}
+ .ab button{padding:5px 9px;font-size:12px}
+ .ab button.on{border-color:var(--warn);color:var(--warn)}
+ .chips{display:flex;gap:6px;margin-top:10px;align-items:center}
+ .chips button{padding:5px 8px;font-size:12px;flex:1}
+ .chips button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+ .chips input{width:62px;padding:5px 6px;border-radius:8px;border:1px solid var(--line);background:#0f1115;color:var(--fg);font-size:12px;text-align:right;outline:none}
+ .chips input:focus{border-color:var(--acc)}
+ .chips span{color:var(--mut);font-size:11px}
+ #tripInfo{color:var(--mut);font-size:12px;margin-top:8px;min-height:16px}
+ #bar{height:6px;background:#0f1115;border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-top:8px;display:none}
+ #bar i{display:block;height:100%;background:var(--acc);width:0;transition:width 1s linear}
+ #map.pick{cursor:crosshair}
  .leaflet-container{background:#0f1115}
  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--fg);box-shadow:0 4px 20px #000a}
  .leaflet-popup-content{margin:10px 12px;font-size:13px}
@@ -67,9 +85,18 @@
    <div id="place"></div>
    <div class="row"><button id="saveBtn" onclick="saveCurrent()" disabled>★ Save spot</button><button id="copyBtn" onclick="copyCoords()" disabled>Copy</button><button class="danger" onclick="clearLoc()">Real GPS</button></div>
   </div>
+  <div class="sec">
+   <h2>Trip</h2>
+   <div class="ab"><span class="l">A</span><span class="v" id="fromV">start</span><span><button id="fromCur" onclick="useCurrent()" title="use the current pin">pin</button> <button id="pickFrom" onclick="pick('from')">map</button></span></div>
+   <div class="ab"><span class="l">B</span><span class="v" id="toV">destination</span><span><button id="pickTo" onclick="pick('to')">map</button></span></div>
+   <div class="chips"><button data-mph="3" onclick="chip(this)">Walk</button><button data-mph="12" onclick="chip(this)">Bike</button><button data-mph="30" class="on" onclick="chip(this)">Drive</button><input id="speed" type="number" min="0.5" step="1" value="30" oninput="chipOff()"><span>mph</span></div>
+   <div id="tripInfo"></div>
+   <div id="bar"><i></i></div>
+   <div class="row"><button class="primary" id="goBtn" onclick="startTrip()" disabled>Start trip</button><button id="stopBtn" onclick="stopTrip()" style="display:none">Stop here</button><button onclick="clearTrip()">Reset</button></div>
+  </div>
   <div class="sec"><h2>Saved</h2><ul id="saved"></ul></div>
   <div class="sec"><h2>Recent</h2><ul id="recent"></ul></div>
-  <div id="hint">Click the map to drop a pin, then <b>Teleport</b> to move the phone. Drag either pin to fine-tune. <kbd>Esc</kbd> cancels, <kbd>Enter</kbd> confirms.</div>
+  <div id="hint">Click the map to drop a pin, then <b>Teleport</b>. Or set A and B in <b>Trip</b> and the phone drives there at the chosen speed. <kbd>Esc</kbd> cancels, <kbd>Enter</kbd> confirms.</div>
  </div>
  <div id="map"></div>
 </div>
@@ -121,8 +148,8 @@ function showPreview(lat,lng){
 }
 function cancelPreview(){if(preview){preview.closePopup();map.removeLayer(preview);preview=null;}map.closePopup();}
 function confirmPreview(){if(!preview)return;const q=preview.getLatLng();cancelPreview();setLoc(q.lat,q.lng);}
-map.on('click',e=>showPreview(e.latlng.lat,e.latlng.lng));
-document.addEventListener('keydown',e=>{if(e.key==='Escape')cancelPreview();if(e.key==='Enter'&&preview&&document.activeElement!==$('q'))confirmPreview();});
+map.on('click',e=>{if(picking)setPoint(picking,e.latlng.lat,e.latlng.lng);else showPreview(e.latlng.lat,e.latlng.lng);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){cancelPreview();if(picking)pick(picking);}if(e.key==='Enter'&&preview&&document.activeElement!==$('q'))confirmPreview();});
 
 async function reverse(lat,lng){
   try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=16&lat=${lat}&lon=${lng}`);
@@ -132,10 +159,10 @@ async function reverse(lat,lng){
 async function search(){
   const q=$('q').value.trim(); if(!q)return;
   const m=q.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
-  if(m){const la=+m[1],ln=+m[3];map.setView([la,ln],15);showPreview(la,ln);return;}
+  if(m){const la=+m[1],ln=+m[3];map.setView([la,ln],15);picking?setPoint(picking,la,ln):showPreview(la,ln);return;}
   const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q));
   const j=await r.json(); if(!j.length){toast('Not found');return;}
-  const la=+j[0].lat,ln=+j[0].lon; map.setView([la,ln],15); showPreview(la,ln);
+  const la=+j[0].lat,ln=+j[0].lon; map.setView([la,ln],15); picking?setPoint(picking,la,ln):showPreview(la,ln);
 }
 $('q').addEventListener('keydown',e=>{if(e.key==='Enter')search();});
 
@@ -160,14 +187,69 @@ function renderLists(){
       ul.appendChild(li);});
   }
 }
+// ---- trip (A -> B at a speed) ----
+let trip={from:null,to:null}, picking=null, ptM={}, line=null, tripActive=false;
+const ptIcon=w=>L.divIcon({className:'',html:`<div class="pt ${w==='from'?'a':'b'}">${w==='from'?'A':'B'}</div>`,iconSize:[24,24],iconAnchor:[12,12]});
+function setPoint(w,lat,lng){
+  trip[w]=[lat,lng];
+  if(!ptM[w]){ptM[w]=L.marker([lat,lng],{draggable:true,icon:ptIcon(w)}).addTo(map);
+    ptM[w].on('dragend',e=>{const q=e.target.getLatLng();setPoint(w,q.lat,q.lng);});}
+  else ptM[w].setLatLng([lat,lng]);
+  picking=(w==='from'&&!trip.to)?'to':null;  // natural flow: A then B
+  updateTrip();
+}
+function pick(w){picking=picking===w?null:w;updateTrip();}
+function useCurrent(){if(cur)setPoint('from',cur[0],cur[1]);else toast('No pin on the phone yet');}
+function chip(b){document.querySelectorAll('.chips button').forEach(x=>x.classList.toggle('on',x===b));$('speed').value=b.dataset.mph;updateTrip();}
+function chipOff(){document.querySelectorAll('.chips button').forEach(x=>x.classList.toggle('on',+x.dataset.mph===+$('speed').value));updateTrip();}
+const mps=()=>Math.max(0.1,+$('speed').value||0)*0.44704;
+function hav(a,b){const R=6371000,r=x=>x*Math.PI/180,dl=r(b[0]-a[0]),dn=r(b[1]-a[1]);const h=Math.sin(dl/2)**2+Math.cos(r(a[0]))*Math.cos(r(b[0]))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+const fdist=m=>m<1000?`${m.toFixed(0)} m`:`${(m/1000).toFixed(1)} km · ${(m/1609.344).toFixed(1)} mi`;
+const ftime=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?`${h}h ${m}m`:(m?`${m}m ${x}s`:`${x}s`);};
+function updateTrip(){
+  $('fromV').textContent=trip.from?fmt(...trip.from):'start'; $('fromV').classList.toggle('set',!!trip.from);
+  $('toV').textContent=trip.to?fmt(...trip.to):'destination'; $('toV').classList.toggle('set',!!trip.to);
+  $('pickFrom').classList.toggle('on',picking==='from'); $('pickTo').classList.toggle('on',picking==='to');
+  $('map').classList.toggle('pick',!!picking);
+  if(line){map.removeLayer(line);line=null;}
+  if(trip.from&&trip.to)line=L.polyline([trip.from,trip.to],{color:'#ffc857',weight:3,dashArray:'6 8'}).addTo(map);
+  $('goBtn').disabled=!(trip.from&&trip.to)||tripActive;
+  if(tripActive)return;
+  if(picking)$('tripInfo').textContent=`Click the map to set ${picking==='from'?'A (start)':'B (destination)'}`;
+  else if(trip.from&&trip.to){const d=hav(trip.from,trip.to);$('tripInfo').textContent=`${fdist(d)} · about ${ftime(d/mps())}`;}
+  else $('tripInfo').textContent='';
+}
+async function startTrip(){
+  if(!(trip.from&&trip.to))return; cancelPreview();
+  const r=await fetch('/trip',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({from:trip.from,to:trip.to,speed:mps()})});
+  if(!r.ok){toast('Trip rejected');return;}
+  tripActive=true; placeName=''; $('bar').style.display='block'; $('stopBtn').style.display=''; $('goBtn').disabled=true;
+  map.fitBounds(L.latLngBounds(trip.from,trip.to).pad(0.2)); toast('Moving'); poll();
+}
+async function stopTrip(){await fetch('/stop',{method:'POST'});endTrip('Stopped here');if(cur)setPoint('from',cur[0],cur[1]);}
+function endTrip(msg){tripActive=false;$('bar').style.display='none';$('bar').querySelector('i').style.width='0';$('stopBtn').style.display='none';if(msg)toast(msg);updateTrip();}
+function clearTrip(){
+  if(tripActive)stopTrip();
+  for(const w of ['from','to'])if(ptM[w]){map.removeLayer(ptM[w]);delete ptM[w];}
+  trip={from:null,to:null};picking=null;updateTrip();
+}
+function showLive(p){cur=p;place(p[0],p[1]);$('cv').textContent=fmt(p[0],p[1]);$('coords').querySelector('span').textContent='pin';$('saveBtn').disabled=$('copyBtn').disabled=false;}
+
 async function poll(){
   try{const s=await (await fetch('/status')).json();
     const d=$('dot'); d.className='dot '+(s.status.startsWith('ok')?'ok':(s.status.startsWith('err')?'bad':''));
-    const label={'ok: holding':'Holding spoofed location','ok: connected':'Connected, real GPS','ok: no-device mode':'UI test mode (no phone)'}[s.status]||s.status.replace(/^err: /,'');
+    const label={'ok: holding':'Holding spoofed location','ok: connected':'Connected, real GPS','ok: moving':'Moving','ok: no-device mode':'UI test mode (no phone)'}[s.status]||s.status.replace(/^err: /,'');
     $('stText').textContent=label; $('device').textContent=s.device||'';
     $('coords').classList.toggle('live',!!s.applied);
-    if(s.applied&&!cur){cur=s.applied;place(cur[0],cur[1]);$('cv').textContent=fmt(cur[0],cur[1]);$('coords').querySelector('span').textContent='pin';$('saveBtn').disabled=$('copyBtn').disabled=false;}
+    if(s.trip){
+      if(!tripActive){tripActive=true;$('bar').style.display='block';$('stopBtn').style.display='';$('goBtn').disabled=true;
+        if(!trip.from){setPoint('from',...s.trip.from);setPoint('to',...s.trip.to);picking=null;updateTrip();}}
+      $('bar').querySelector('i').style.width=(s.trip.progress*100).toFixed(1)+'%';
+      $('tripInfo').textContent=`${fdist(s.trip.dist*(1-s.trip.progress))} left · ${ftime(s.trip.remaining_s)}`;
+      if(s.applied)showLive(s.applied);
+    }else if(tripActive){endTrip('Arrived');if(s.applied){showLive(s.applied);pushRecent(s.applied[0],s.applied[1]);reverse(s.applied[0],s.applied[1]);}}
+    else if(s.applied&&!cur)showLive(s.applied);
   }catch(e){$('dot').className='dot bad';$('stText').textContent='Server not reachable';}
 }
-renderLists(); setInterval(poll,2000); poll();
+renderLists(); updateTrip(); setInterval(poll,1000); poll();
 </script></body></html>

@@ -48,9 +48,15 @@ Open http://127.0.0.1:8765. Click the map to drop a pin, hit **Teleport**. Drag 
 fine-tune. Search a place name or paste `lat, lng`. Star a spot to save it. **Real GPS**
 clears the spoof. Ctrl+C in the terminal also clears it.
 
+**Trip:** set A (the current pin, or click the map) and B, pick Walk / Bike / Drive or
+type a speed in mph, hit **Start trip**. The phone moves along a straight line from A to
+B once a second and holds at B. **Stop here** freezes it mid-way. The server does the
+moving, so the browser tab can be closed.
+
 CLI:
 ```
 python geofake.py pin 37.8716 -122.2727
+python geofake.py go 37.8716 -122.2727 37.8044 -122.2712 --speed 13.4   # A to B at 13.4 m/s (30 mph), hold at B
 python geofake.py walk route.gpx --speed 1.4     # walk a GPX track at 1.4 m/s, back and forth
 python geofake.py clear
 ```
@@ -112,5 +118,5 @@ channel, same limits).
 
 ## Files
 
-- `geoweb.py` + `page.html`: local web server and map UI
-- `geofake.py`: CLI, GPX walking, and the shared `Session` class
+- `geoweb.py` + `page.html`: local web server and map UI (teleport and A-to-B trips)
+- `geofake.py`: CLI (`pin`, `go`, `walk`, `clear`) and the shared `Session` class

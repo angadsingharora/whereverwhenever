@@ -3,6 +3,7 @@
 geofake: keep a simulated location pinned on a USB-connected iPhone (iOS 17.4+).
 
   geofake.py pin 37.8716 -122.2727          hold one coordinate until Ctrl+C
+  geofake.py go 37.87 -122.27 37.80 -122.41 --speed 13.4   drive A to B at 13.4 m/s, hold at B
   geofake.py walk route.gpx --speed 1.4     walk a GPX track at 1.4 m/s, back and forth
   geofake.py clear                          drop the simulation
 
@@ -122,9 +123,14 @@ async def run(args):
         await sess.close()
         return
 
-    gen = pin_points(args.lat, args.lng) if args.cmd == "pin" else walk_points(
-        load_gpx(args.gpx), args.speed, args.tick, not args.once
-    )
+    if args.cmd == "pin":
+        gen = pin_points(args.lat, args.lng)
+    elif args.cmd == "go":
+        a, b = (args.lat1, args.lng1), (args.lat2, args.lng2)
+        log(f"{haversine_m(a, b):.0f} m at {args.speed} m/s, about {haversine_m(a, b) / args.speed:.0f} s")
+        gen = walk_points([a, b], args.speed, args.tick, False)
+    else:
+        gen = walk_points(load_gpx(args.gpx), args.speed, args.tick, not args.once)
     backoff = 2
     current = None
     try:
@@ -173,6 +179,13 @@ def main():
     s = sub.add_parser("pin", help="hold one coordinate")
     s.add_argument("lat", type=float)
     s.add_argument("lng", type=float)
+
+    s = sub.add_parser("go", help="move from A to B at a speed, then hold at B")
+    s.add_argument("lat1", type=float)
+    s.add_argument("lng1", type=float)
+    s.add_argument("lat2", type=float)
+    s.add_argument("lng2", type=float)
+    s.add_argument("--speed", type=float, default=13.4, help="m/s (1.4 walk, 5 bike, 13.4 = 30 mph)")
 
     s = sub.add_parser("walk", help="walk a GPX track")
     s.add_argument("gpx")
