@@ -29,8 +29,14 @@
  #busy.on{opacity:1;animation:crawl 1.6s ease-out forwards}
  @keyframes crawl{0%{width:0}60%{width:70%}100%{width:88%}}
  #busy.done{animation:none;width:100%;transition:width .15s,opacity .4s .2s;opacity:0}
- #body{display:grid;grid-template-columns:384px 1fr;min-height:0}
+ #body{display:grid;grid-template-columns:var(--sidew,384px) 1fr;min-height:0}
  #side{border-right:1px solid var(--line);overflow:auto;display:flex;flex-direction:column;background:#fff}
+ #grip{position:absolute;left:calc(var(--sidew,384px) - 4px);top:0;bottom:0;width:9px;cursor:col-resize;z-index:30}
+ #grip::after{content:"";position:absolute;left:4px;top:0;bottom:0;width:1px;background:transparent;transition:background .15s}
+ #grip:hover::after,#grip.drag::after{background:var(--sec)}
+ body.resizing{cursor:col-resize;user-select:none}
+ body.resizing #map{pointer-events:none}
+ #body{position:relative}
  #main{display:grid;grid-template-rows:1fr auto;min-height:0;position:relative}
  #map{min-height:0}
  .sec{padding:14px 18px;border-bottom:1px solid var(--line)}
@@ -180,7 +186,7 @@
  #boot .r.ok{color:var(--green)} #boot .r.bad{color:var(--red)} #boot .r.wait{color:var(--amber)}
  #introBtns{display:flex;gap:10px;margin-top:14px;align-items:center;min-height:34px}
  #introBtns span{color:var(--faint);font-size:12px;flex:1}
- @media(max-width:820px){#body{grid-template-columns:1fr;grid-template-rows:auto 1fr}#side{max-height:48vh;border-right:0;border-bottom:1px solid var(--line)}}
+ @media(max-width:820px){#body{grid-template-columns:1fr;grid-template-rows:auto 1fr}#side{max-height:48vh;border-right:0;border-bottom:1px solid var(--line)}#grip{display:none}}
 </style></head><body>
 <div id="intro"><div class="box">
  <h1><em>wherever</em><b>whenever</b></h1>
@@ -236,6 +242,7 @@ whereverwhenever</pre>
    <div class="sec"><h2>Recent</h2><ul class="list" id="recent"></ul></div>
    <div id="hint">Click the map to teleport. Add stops, <b>Plan route</b> to see the speed profile the phone will follow, <b>Go</b> to run it. <kbd>/</kbd> search, <kbd>Esc</kbd> cancels, <kbd>Enter</kbd> confirms or goes.</div>
   </div>
+  <div id="grip" title="drag to resize, double-click to reset"></div>
   <div id="main">
    <div id="map"></div>
    <div id="sim">
@@ -650,6 +657,18 @@ function setBridge(ok){
   $('nobridge').style.display=ok?'none':'block';
   if(!ok){$('dot').className='bad';$('stText').textContent=LOCAL?'bridge stopped':'bridge not running on this computer';$('device').textContent='';}
 }
+// ---------- resizable sidebar ----------
+(function(){
+  const g=$('grip'),root=document.documentElement,KEY='sidew';
+  const set=w=>{w=Math.max(300,Math.min(w,Math.floor(innerWidth*0.6)));root.style.setProperty('--sidew',w+'px');return w;};
+  try{const v=+localStorage.getItem(KEY);if(v)set(v);}catch(e){}
+  let x0=0,w0=0;
+  g.addEventListener('pointerdown',e=>{x0=e.clientX;w0=$('side').getBoundingClientRect().width;g.setPointerCapture(e.pointerId);g.classList.add('drag');document.body.classList.add('resizing');});
+  g.addEventListener('pointermove',e=>{if(!g.classList.contains('drag'))return;set(w0+e.clientX-x0);map.resize();});
+  const end=()=>{if(!g.classList.contains('drag'))return;g.classList.remove('drag');document.body.classList.remove('resizing');try{localStorage.setItem(KEY,parseInt(root.style.getPropertyValue('--sidew'))||'');}catch(e){}map.resize();};
+  g.addEventListener('pointerup',end);g.addEventListener('pointercancel',end);
+  g.addEventListener('dblclick',()=>{root.style.removeProperty('--sidew');try{localStorage.removeItem(KEY);}catch(e){}map.resize();});
+})();
 function fitCanvas(){const c=map.getContainer(),k=map.getCanvas();if(c.clientWidth&&(Math.abs(k.clientWidth-c.clientWidth)>1||Math.abs(k.clientHeight-c.clientHeight)>1))map.resize();}
 async function poll(){ fitCanvas();
   let s; try{s=await (await api('/status')).json();}catch(e){setBridge(false);return;}
