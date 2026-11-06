@@ -434,7 +434,7 @@ async def device_loop(rsd, udid):
                     log(f"{msg}; retrying")
                     sess._last_msg, sess._last_t = msg, time.time()
                 await sess.close()
-                await asyncio.sleep(backoff)
+                await wait_wake(backoff)  # any POST (e.g. /link) retries at once
                 backoff = min(backoff * 2, 30)
     finally:
         try:
