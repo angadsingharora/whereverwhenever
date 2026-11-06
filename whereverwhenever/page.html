@@ -662,12 +662,13 @@ function setBridge(ok){
   const g=$('grip'),root=document.documentElement,KEY='sidew';
   const set=w=>{w=Math.max(300,Math.min(w,Math.floor(innerWidth*0.6)));root.style.setProperty('--sidew',w+'px');return w;};
   try{const v=+localStorage.getItem(KEY);if(v)set(v);}catch(e){}
-  let x0=0,w0=0;
-  g.addEventListener('pointerdown',e=>{x0=e.clientX;w0=$('side').getBoundingClientRect().width;g.setPointerCapture(e.pointerId);g.classList.add('drag');document.body.classList.add('resizing');});
-  g.addEventListener('pointermove',e=>{if(!g.classList.contains('drag'))return;set(w0+e.clientX-x0);map.resize();});
-  const end=()=>{if(!g.classList.contains('drag'))return;g.classList.remove('drag');document.body.classList.remove('resizing');try{localStorage.setItem(KEY,parseInt(root.style.getPropertyValue('--sidew'))||'');}catch(e){}map.resize();};
+  let x0=0,w0=0,c0=null;
+  const refit=()=>{map.resize();if(c0)map.setCenter(c0);};
+  g.addEventListener('pointerdown',e=>{x0=e.clientX;w0=$('side').getBoundingClientRect().width;c0=map.getCenter();g.setPointerCapture(e.pointerId);g.classList.add('drag');document.body.classList.add('resizing');});
+  g.addEventListener('pointermove',e=>{if(!g.classList.contains('drag'))return;set(w0+e.clientX-x0);refit();});
+  const end=()=>{if(!g.classList.contains('drag'))return;g.classList.remove('drag');document.body.classList.remove('resizing');try{localStorage.setItem(KEY,parseInt(root.style.getPropertyValue('--sidew'))||'');}catch(e){}refit();c0=null;};
   g.addEventListener('pointerup',end);g.addEventListener('pointercancel',end);
-  g.addEventListener('dblclick',()=>{root.style.removeProperty('--sidew');try{localStorage.removeItem(KEY);}catch(e){}map.resize();});
+  g.addEventListener('dblclick',()=>{const c=map.getCenter();root.style.removeProperty('--sidew');try{localStorage.removeItem(KEY);}catch(e){}map.resize();map.setCenter(c);});
 })();
 function fitCanvas(){const c=map.getContainer(),k=map.getCanvas();if(c.clientWidth&&(Math.abs(k.clientWidth-c.clientWidth)>1||Math.abs(k.clientHeight-c.clientHeight)>1))map.resize();}
 async function poll(){ fitCanvas();
