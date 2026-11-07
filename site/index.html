@@ -491,7 +491,9 @@ function updateInfo(){
   if(running)return;
   if(adding){$('tripInfo').textContent='Click the map to add a stop, or search above.';return;}
   if(stops.length<2){$('tripInfo').textContent='';return;}
-  if(planned){$('tripInfo').textContent=`${fdist(planned.total_m)} on roads · ${ftime(planned.total_s)} total · press Go`;return;}
+  if(planned){const n=planned.straight_legs|0,legs=planned.leg_start_m.length;
+    $('tripInfo').innerHTML=n?`<b style="color:var(--amber)">${n===legs?'Straight line, not roads':`${n} of ${legs} legs straight, not roads`}</b> · routing server unreachable, try Plan route again · ${fdist(planned.total_m)} · ${ftime(planned.total_s)}`
+      :`${fdist(planned.total_m)} on roads · ${ftime(planned.total_s)} total · press Go`;return;}
   const pts=stops.map(s=>[s.lat,s.lng]); if($('loop').checked)pts.push(pts[0]);
   let d=0; for(let i=1;i<pts.length;i++)d+=hav(pts[i-1],pts[i]);
   $('tripInfo').textContent=`${fdist(d)} straight-line · plan to route on roads`;
@@ -508,7 +510,7 @@ async function planTrip(){
   const r=await api('/preview',body()).catch(()=>null); clearInterval(tick); busy(false);
   if(!r||!r.ok){const e=r?await r.json().catch(()=>({})):{};toast(e.error||'Bridge not reachable');$('planBtn').disabled=false;$('prof').classList.remove('show');map.resize();updateInfo();return;}
   planned=await r.json(); drawRoute(planned); drawProfile(planned); map.resize(); fitTo(planned.route,60);
-  if(planned.straight_legs)toast('No road data for some legs; straight line there');
+  if(planned.straight_legs)toast('Routing server unreachable: straight line, not roads. Try Plan route again.');
   updateTrip();
 }
 async function startTrip(){
@@ -517,7 +519,7 @@ async function startTrip(){
   $('goBtn').disabled=true;
   const r=await api('/trip',b).catch(()=>null);
   if(!r||!r.ok){const e=r?await r.json().catch(()=>({})):{};toast(e.error||'Bridge not reachable');$('goBtn').disabled=false;return;}
-  const d=await r.json(); beginRun(d); tripId=d.t0; toast('Moving'); poll();
+  const d=await r.json(); beginRun(d); tripId=d.t0; toast(d.straight_legs?'Moving in a straight line (no roads)':'Moving'); poll();
 }
 function drawRoute(d){
   setLine('route',d.route); setLine('done',null);

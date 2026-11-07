@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import bisect
 import json
+import os
 import math
 import random
+import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
@@ -79,18 +81,51 @@ class Frame:
 
 
 # ---------------------------------------------------------------- routing
-def fetch_route(a, b, profile: Profile, timeout=20):
-    """Road polyline from a to b as [(lat,lng), ...], maneuver points, and the router's
-    speed (m/s) for each segment, which tracks road class and posted limits.
-    Raises on network/HTTP failure; caller decides whether to fall back."""
-    url = (f"https://routing.openstreetmap.de/routed-{profile.osrm}/route/v1/driving/"
+# Routers tried in order per leg; {osrm} is the profile's name. The public fallback only
+# routes cars. WW_ROUTERS (comma separated) overrides the list, e.g. for an own OSRM.
+ROUTERS = [r for r in os.environ.get("WW_ROUTERS", "").split(",") if r] or [
+    "https://routing.openstreetmap.de/routed-{osrm}",
+    "https://router.project-osrm.org",
+]
+ROUTE_TRIES = 3            # attempts per leg across the router list, with a short backoff
+_route_cache = {}          # (osrm, a, b) -> (when, pts, man, speeds): a plan and its Go share roads
+ROUTE_CACHE_S = 3600
+
+
+def _one_router(base, a, b, profile: Profile, timeout):
+    url = (f"{base.format(osrm=profile.osrm)}/route/v1/driving/"
            f"{a[1]:.6f},{a[0]:.6f};{b[1]:.6f},{b[0]:.6f}"
            "?overview=full&geometries=geojson&steps=true&annotations=speed")
     req = urllib.request.Request(url, headers={"User-Agent": "whereverwhenever/0.2 (location simulation testing)"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         j = json.load(r)
     if j.get("code") != "Ok" or not j.get("routes"):
-        raise RuntimeError(f"routing failed: {j.get('code')} {j.get('message', '')}")
+        raise RuntimeError(f"{j.get('code')} {j.get('message', '')}".strip())
+    return j
+
+
+def fetch_route(a, b, profile: Profile, timeout=20):
+    """Road polyline from a to b as [(lat,lng), ...], maneuver points, and the router's
+    speed (m/s) for each segment, which tracks road class and posted limits.
+    Tries each router up to ROUTE_TRIES times in all; raises the last error when none
+    answers, and the caller decides whether to fall back to a straight line."""
+    key = (profile.osrm, round(a[0], 5), round(a[1], 5), round(b[0], 5), round(b[1], 5))
+    hit = _route_cache.get(key)
+    if hit and time.time() - hit[0] < ROUTE_CACHE_S:
+        return hit[1], hit[2], hit[3]
+    routers = [r for r in ROUTERS if "{osrm}" in r or profile.osrm == "car"]
+    last = None
+    for attempt in range(ROUTE_TRIES):
+        base = routers[attempt % len(routers)]
+        try:
+            j = _one_router(base, a, b, profile, timeout)
+            break
+        except Exception as e:  # timeout, 429, 5xx, DNS, NoRoute: try the next router
+            last = e
+            if attempt + 1 < ROUTE_TRIES:
+                time.sleep(0.5 * (attempt + 1))
+    else:
+        raise RuntimeError(f"{type(last).__name__}: {last}") from last
     rt = j["routes"][0]
     pts = [(c[1], c[0]) for c in rt["geometry"]["coordinates"]]
     # maneuver points: turns, lights, roundabouts live here. First/last are depart/arrive.
@@ -99,6 +134,9 @@ def fetch_route(a, b, profile: Profile, timeout=20):
     speeds = [v for leg in rt["legs"] for v in (leg.get("annotation") or {}).get("speed", [])]
     if len(speeds) != len(pts) - 1:
         speeds = None
+    if len(_route_cache) > 200:
+        _route_cache.clear()
+    _route_cache[key] = (time.time(), pts, man[1:-1], speeds)
     return pts, man[1:-1], speeds
 
 

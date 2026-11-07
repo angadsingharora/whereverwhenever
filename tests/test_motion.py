@@ -157,3 +157,36 @@ def test_road_speeds_lift_the_freeway_and_hold_side_streets():
     capped = Trajectory([a, b], [Leg(pts, [], True, vmax)], PROFILES["drive"], seed=3, cruise=10.0)
     assert capped.v_max <= 10.0 * (1 + PROFILES["drive"].jitter) + 1e-6
     assert Trajectory.from_json(capped.to_json()).user_cruise == 10.0
+
+
+def test_routing_retries_then_falls_back_to_next_router(monkeypatch):
+    """First router times out, second answers: the leg is still on roads. The answer is
+    cached, so planning and then pressing Go does not ask the router twice."""
+    motion._route_cache.clear()
+    monkeypatch.setattr(motion, "ROUTERS", ["https://dead.example/{osrm}", "https://alive.example"])
+    monkeypatch.setattr(motion.time, "sleep", lambda s: None)
+    calls = []
+    ok = {"code": "Ok", "routes": [{"geometry": {"coordinates": [[-122.27, 37.87], [-122.26, 37.875], [-122.25, 37.88]]},
+                                    "legs": [{"steps": [{"maneuver": {"location": [-122.27, 37.87]}},
+                                                        {"maneuver": {"location": [-122.26, 37.875]}},
+                                                        {"maneuver": {"location": [-122.25, 37.88]}}],
+                                              "annotation": {"speed": [10.0, 25.0]}}]}]}
+
+    def fake(base, a, b, profile, timeout):
+        calls.append(base)
+        if "dead" in base:
+            raise TimeoutError("timed out")
+        return ok
+
+    monkeypatch.setattr(motion, "_one_router", fake)
+    pts, man, sp = motion.fetch_route((37.87, -122.27), (37.88, -122.25), PROFILES["drive"])
+    assert calls == ["https://dead.example/{osrm}", "https://alive.example"]
+    assert len(pts) == 3 and man == [(37.875, -122.26)] and sp == [10.0, 25.0]
+    motion.fetch_route((37.87, -122.27), (37.88, -122.25), PROFILES["drive"])
+    assert len(calls) == 2  # second call served from the cache
+    # walking has no public fallback, so a dead router means a straight line, after retries
+    monkeypatch.setattr(motion, "ROUTERS", ["https://dead.example/{osrm}", "https://alive.example"])
+    with pytest.raises(RuntimeError, match="timed out"):
+        motion.fetch_route((37.0, -122.0), (37.1, -122.1), PROFILES["walk"])
+    tr = build([(37.0, -122.0), (37.1, -122.1)], "walk", seed=1, online=True)
+    assert all(l.straight for l in tr.legs) and tr.describe()["straight_legs"] == 1

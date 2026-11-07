@@ -53,6 +53,20 @@ async def pair_for_wifi(lockdown):
 
 
 _orig_provider = _ut._create_no_root_tunnel_provider
+_orig_rp_connect = _ts.create_core_device_tunnel_service_using_remotepairing
+
+
+async def _rp_connect(identifier, address, port):
+    """bonjour can answer with an address Python's hostname encoder rejects (a scoped IPv6,
+    'label too long'). pymobiledevice3 only skips OSError, so turn that into one and the
+    browse moves on to the device's next address instead of dropping the whole attempt."""
+    try:
+        return await _orig_rp_connect(identifier, address, port)
+    except (UnicodeError, ValueError) as e:
+        raise OSError(f"unusable address {address!r}: {e}") from e
+
+
+_ts.create_core_device_tunnel_service_using_remotepairing = _rp_connect
 
 
 async def _wifi(serial):
