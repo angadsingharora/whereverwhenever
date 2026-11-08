@@ -15,9 +15,9 @@ What none of them do is the part that makes a spoof survive a glance from a huma
 heuristic: a trajectory that could have been recorded by a phone in someone's pocket.
 That is what `motion.py` is.
 
-> **Status (Nov 2026):** works on iOS 17.4 through 26.x for Maps and most apps.
-> On **iOS 27.2** the phone accepts the command and ignores it. **Find My** stopped
-> honouring simulated location around iOS 26.6 regardless. See [The hack](#the-hack)
+> **Status (Nov 2026):** works on iOS 17.4 through 27.2 for Maps and most apps
+> (27.2 verified over USB and Wi-Fi). **Find My** stopped honouring simulated location
+> around iOS 26.6 regardless. See [The hack](#the-hack)
 > and [Workarounds](#workarounds) before you spend time on this.
 
 ## How it works
