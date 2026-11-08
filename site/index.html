@@ -198,7 +198,7 @@
  <div class="tag"><span id="tagT"></span><i></i></div>
  <p class="what">Moves your iPhone's location from this page. Teleport to a pin, or give it stops and it <b>drives there on real roads</b>: accelerating, braking into corners, waiting at lights, lingering where you'd linger, with the few metres of GPS wobble a real phone has. Find My, Maps, every app sees the same thing.</p>
  <div id="steps">
-  <div><span class="n mono">1</span><div><b>Phone</b> Settings → Privacy &amp; Security → Developer Mode → on. Plug in, unlock. That first cable also pairs it for Wi-Fi: after that, same network is enough. Windows: install the <i>Apple Devices</i> app once.</div></div>
+  <div><span class="n mono">1</span><div><b>Phone</b> Settings → Privacy &amp; Security → Developer Mode → on. Plug in, unlock. That first cable also pairs it for Wi-Fi: after that, same network is enough. Windows: install the <i>Apple Devices</i> app once. First contact mounts Apple's developer image on the phone by itself.</div></div>
   <div><span class="n mono">2</span><div><b>Computer</b> one command, it stays running:<pre class="mono">pip install git+https://github.com/angadsingharora/whereverwhenever
 whereverwhenever</pre></div></div>
   <div><span class="n mono">3</span><div><b>This page</b> finds it on its own. That's it.</div></div>
@@ -215,11 +215,11 @@ whereverwhenever</pre></div></div>
   <div id="side">
    <div id="nobridge">
     <h3>Bridge isn't running</h3>
-    <p>The site can't reach your phone by itself. One local process does that. Phone plugged in and unlocked (first time; after that Wi-Fi works), then in a terminal:</p>
+    <p>The site can't reach your phone by itself. One local process on your computer does that. You need <b>Python 3.10 or newer</b> (<a href="https://www.python.org/downloads/" target="_blank">python.org</a>; Macs ship 3.9, which is too old). Then in a terminal:</p>
     <pre>pip install git+https://github.com/angadsingharora/whereverwhenever
 whereverwhenever</pre>
-    <p>This page reconnects on its own once it's up.</p>
-    <ol><li>iPhone: Settings → Privacy &amp; Security → Developer Mode → on, reboot.</li><li>Windows: install the <i>Apple Devices</i> app from the Store for the USB driver.</li><li>First run: <span class="mono">pymobiledevice3 mounter auto-mount</span></li></ol>
+    <p>If <span class="mono">whereverwhenever</span> isn't found afterwards, run <span class="mono">python3 -m whereverwhenever.server</span>, or install with <span class="mono">pipx</span> / <span class="mono">uv tool</span> instead of pip. This page reconnects on its own once it's up.</p>
+    <ol><li>iPhone: Settings → Privacy &amp; Security → Developer Mode → on, reboot. (No jailbreak, nothing to install on the phone.)</li><li>Plug the phone in with a cable and unlock it. That first cable pairs it for Wi-Fi; after that, same network is enough.</li><li>Windows only: install the <i>Apple Devices</i> app from the Microsoft Store for the USB driver.</li><li>First contact with a phone downloads Apple's developer image to it, about a minute. Nothing to do.</li></ol>
    </div>
    <div class="sec">
     <div class="row" style="margin-top:0;flex-wrap:nowrap"><input id="q" type="text" placeholder="Place, address, or lat, lng"><button onclick="search()">Find</button></div>
@@ -652,7 +652,7 @@ function human(st){
   if(/^switching/.test(st))return st;
   if(/PasscodeRequired|locked|LockdownError/i.test(st))return 'unlock the phone';
   if(/DeveloperMode|amfi/i.test(st))return 'turn on Developer Mode on the phone';
-  if(/DeviceImage|mounter|DDI|cryptex/i.test(st))return 'developer image missing: run pymobiledevice3 mounter auto-mount';
+  if(/DeviceImage|mounter|DDI|cryptex|NotMounted/i.test(st))return 'mounting the developer image on the phone: needs internet, keep the phone unlocked';
   if(/Pair|TrustError|NotTrusted/i.test(st))return 'tap Trust on the phone';
   if(/connecting/.test(st))return st;
   return st.replace(/^err: /,'').replace(/^\w+Error:\s*/,'');

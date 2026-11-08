@@ -40,6 +40,7 @@ whereverwhenever does three things:
 
 ## Use
 
+Needs Python 3.10 or newer (Macs ship 3.9: `brew install python` or python.org).
 Phone plugged in and unlocked (first time; after that, same Wi-Fi works), then:
 
 ```
@@ -47,14 +48,18 @@ pip install git+https://github.com/angadsingharora/whereverwhenever
 whereverwhenever
 ```
 
+If the command isn't found afterwards, `python3 -m whereverwhenever.server`, or install
+with `pipx install git+…` / `uv tool install git+…`, which put it on PATH for you.
+
 That starts the **bridge**, the one local process that talks to the phone, and opens the
 UI. The same UI is hosted at **https://whereverwhenever.vercel.app** and talks to the bridge
 on your machine; if the bridge isn't running the site tells you how to start it.
 
 First time only: iPhone Settings > Privacy & Security > Developer Mode > on, reboot
 (if the toggle is missing: `pymobiledevice3 amfi reveal-developer-mode`). Windows needs
-the **Apple Devices** app from the Store for the USB driver. Then
-`pymobiledevice3 mounter auto-mount` once.
+the **Apple Devices** app from the Store for the USB driver. The first contact with a
+phone downloads Apple's developer disk image and mounts it (about a minute, needs
+internet); the bridge does that itself.
 
 **Cable or Wi-Fi:** the Phone card has an Auto / USB / Wi-Fi switch, and the bridge
 takes `--link usb|wifi|auto`. Auto uses the cable when it's in and Wi-Fi otherwise.
@@ -133,7 +138,7 @@ without a phone.
 ## Verify
 
 1. Status box in the sidebar goes green with your iPhone model and iOS version.
-2. Apple Maps on the phone jumps to the pin. If it doesn't, the phone is ignoring the spoof.
+2. Apple Maps on the phone jumps to the pin.
 3. For Find My, check from the **outside**: iCloud.com > Find My, or a friend's phone.
    Watch for a full minute. Known behaviour on 26.6+: flashes the fake spot for half a
    second, then snaps back to real.
@@ -149,11 +154,9 @@ What this exploits, and where it stops:
   without a jailbreak, and there is no jailbreak for current hardware.
 - **It can't run on the phone.** iOS won't let an app send the phone its own developer
   commands, and there's no public API to override system location.
-- **iOS 27.2 ignores it.** Tested on iPhone18,3 / 27.2 with pymobiledevice3 11.43: tunnel
-  up, channel open, `set` accepted with no error, phone doesn't move. The developer
-  image available is the iOS 27.0 beta build (27A5228h), the newest the tooling ships.
-  Whether Apple closed the channel or the image is just too old for 27.2 is unknown.
-  The legacy pre-17 service (`com.apple.dt.simulatelocation`) is gone from the phone.
+- **Works on iOS 27.2.** Verified on iPhone18,3 / 27.2 with pymobiledevice3 11.50 over
+  USB and Wi-Fi: Maps follows the fix. The legacy pre-17 service
+  (`com.apple.dt.simulatelocation`) is gone from the phone; this uses the DVT channel.
 - **Find My is a separate wall.** Even where Maps moves (iOS 26.x), Find My reverts to
   the real location within a second. Multiple independent reports since 26.6. Apple
   appears to have moved Find My's reporting off the path that simulation overrides.
@@ -171,10 +174,8 @@ For "my friend sees me somewhere else in Find My", in order of how well they act
    No computer, no cable, no iOS version dependency. This is the only one that holds up.
 2. **Pause sharing.** Find My > People > the person > Stop Sharing, or toggle Share My
    Location off. Shows "No location found" rather than a fake one.
-3. **This tool, on iOS 26.x or earlier,** for apps other than Find My. Keep the PC awake
-   and the cable in.
-4. **Wait for tooling.** Check `pip install -U pymobiledevice3` occasionally. If
-   `pymobiledevice3 mounter list` ever shows a developer image newer than 27A5228h, retry.
+3. **This tool,** for apps other than Find My. Keep the computer awake and on the same
+   network or cable.
 
 Things that don't work: GPS RF spoofing with an SDR (illegal to transmit nearly
 everywhere, and the phone cross-checks Wi-Fi and cell positioning anyway), browser

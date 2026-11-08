@@ -8,7 +8,8 @@ whereverwhenever CLI: keep a simulated location pinned on an iPhone (iOS 17.4+) 
   whereverwhenever-cli walk route.gpx --speed 1.4     walk a GPX track at 1.4 m/s, back and forth
   whereverwhenever-cli clear                          drop the simulation
 
-Needs: pip install -U pymobiledevice3 ; Developer Mode on ; phone unlocked at start.
+Needs: Python 3.10+, Developer Mode on, phone unlocked at start. The first contact with a
+phone downloads Apple's developer disk image and mounts it (about a minute, needs internet).
 No admin needed: uses pymobiledevice3's in-process userspace tunnel.
 Plug in once: that pairs the phone for Wi-Fi, after which the same network is enough.
 Pass --rsd ADDR PORT to reuse a tunnel from `pymobiledevice3 lockdown start-tunnel` instead.
@@ -24,7 +25,9 @@ import time
 import xml.etree.ElementTree as ET
 from contextlib import AsyncExitStack
 
+from pymobiledevice3.exceptions import AlreadyMountedError
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+from pymobiledevice3.services.mobile_image_mounter import auto_mount
 from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
 from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
 
@@ -110,7 +113,20 @@ class Session:
             self.link = link.LAST["link"]
             log(f"tunnel up over {self.link or 'rsd'}: {rsd.product_type} iOS {rsd.product_version}")
         self.device = f"{rsd.product_type} iOS {rsd.product_version}"
-        dvt = await self.stack.enter_async_context(DvtProvider(rsd))
+        try:
+            dvt = await self.stack.enter_async_context(DvtProvider(rsd))
+        except Exception as e:
+            # The developer services only exist once Apple's developer disk image is mounted.
+            # A fresh phone or a fresh laptop has none, so fetch and mount it, then try again.
+            log(f"developer services unavailable ({type(e).__name__}); mounting the developer "
+                "image (first time on this phone: downloads from Apple, about a minute)...")
+            try:
+                await auto_mount(rsd)
+                log("developer image mounted")
+            except AlreadyMountedError:
+                log("developer image is already mounted; the problem is elsewhere")
+                raise e
+            dvt = await self.stack.enter_async_context(DvtProvider(rsd))
         self.loc = await self.stack.enter_async_context(LocationSimulation(dvt))
         log("location channel open")
 
