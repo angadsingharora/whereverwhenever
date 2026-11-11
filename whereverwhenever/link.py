@@ -11,6 +11,7 @@ selection so that:
 
 So: plug in once, and from then on the laptop and the phone just need to share a Wi-Fi.
 """
+import logging
 import time
 
 from pymobiledevice3.exceptions import NoDeviceConnectedError, RemotePairingCompletedError
@@ -69,6 +70,19 @@ async def _rp_connect(identifier, address, port):
 _ts.create_core_device_tunnel_service_using_remotepairing = _rp_connect
 
 
+class _BlockedWatch(logging.Handler):
+    """pymobiledevice3 only logs when the OS refuses its mDNS queries, then returns nothing.
+    Catch that line so 'macOS is blocking this' isn't reported as 'phone not found'."""
+
+    def __init__(self):
+        super().__init__(logging.WARNING)
+        self.blocked = False
+
+    def emit(self, record):
+        if "discovery is blocked" in record.getMessage():
+            self.blocked = True
+
+
 async def _wifi(serial):
     want = serial or LAST["udid"] or None
     if not wifi_paired(want):
@@ -76,7 +90,17 @@ async def _wifi(serial):
             "no phone on USB, and none paired for Wi-Fi yet (plug in once to pair)" if PREF["mode"] != "wifi" else "not paired for Wi-Fi yet (plug in once to pair)"
         ) from None
     log(f"no cable; looking for the phone on Wi-Fi{' (' + want[:8] + '…)' if want else ''}")
-    services = await _ts.get_remote_pairing_tunnel_services(bonjour_timeout=WIFI_BROWSE_S, udid=want)
+    watch, blog = _BlockedWatch(), logging.getLogger("pymobiledevice3.bonjour")
+    blog.addHandler(watch)
+    try:
+        services = await _ts.get_remote_pairing_tunnel_services(bonjour_timeout=WIFI_BROWSE_S, udid=want)
+    finally:
+        blog.removeHandler(watch)
+    if not services and watch.blocked:
+        raise NoDeviceConnectedError(
+            "Wi-Fi blocked by macOS: System Settings > Privacy & Security > Local Network, "
+            "turn on your terminal app, then restart the bridge (or use the cable)"
+        ) from None
     if not services:
         raise NoDeviceConnectedError(
             "no phone answering on Wi-Fi (same network? unlocked since reboot?)"
