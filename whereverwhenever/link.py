@@ -11,10 +11,14 @@ selection so that:
 
 So: plug in once, and from then on the laptop and the phone just need to share a Wi-Fi.
 """
+import asyncio
 import logging
+import socket
 import time
 
-from pymobiledevice3.exceptions import NoDeviceConnectedError, RemotePairingCompletedError
+import os
+
+from pymobiledevice3.exceptions import ConnectionTerminatedError, NoDeviceConnectedError, RemotePairingCompletedError
 from pymobiledevice3.pair_records import iter_remote_pair_records_by_identifier
 from pymobiledevice3.remote import tunnel_service as _ts
 from pymobiledevice3.remote import userspace_tunnel as _ut
@@ -23,6 +27,8 @@ LAST = {"link": "", "udid": ""}  # how the most recent tunnel was reached
 PREF = {"mode": "auto"}  # auto: USB if a cable is in, else Wi-Fi.  usb / wifi: only that.
 MODES = ("auto", "usb", "wifi")
 WIFI_BROWSE_S = 4
+STALE = set()  # UDIDs whose Wi-Fi pair record the phone refused; re-paired on the next cable session
+RP_CONNECT_S = 4  # per address; a wrong interface just hangs
 
 
 def log(msg):
@@ -40,7 +46,15 @@ def wifi_paired(udid=None):
 
 async def pair_for_wifi(lockdown):
     """Promptless RemotePairing pair-setup over the USB lockdown channel. Idempotent."""
-    if wifi_paired(lockdown.udid):
+    if lockdown.udid in STALE:  # the phone refused this record over Wi-Fi: throw it away, pair afresh
+        for ident, path, _rec in list(iter_remote_pair_records_by_identifier()):
+            if ident == lockdown.udid:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        STALE.discard(lockdown.udid)
+    elif wifi_paired(lockdown.udid):
         return False
     svc = await _ts.RemotePairingLockdownService.create(lockdown)
     try:
@@ -57,14 +71,52 @@ _orig_provider = _ut._create_no_root_tunnel_provider
 _orig_rp_connect = _ts.create_core_device_tunnel_service_using_remotepairing
 
 
+def _lan_ifaces():
+    """Interfaces a phone can be on: Wi-Fi / Ethernet / hotspot bridges, not loopback or tunnels."""
+    names = [n for _i, n in socket.if_nameindex()]
+    keep = [n for n in names if n.startswith(("en", "bridge", "wl", "eth", "Wi-Fi", "Ethernet"))]
+    return keep or [n for n in names if not n.startswith(("lo", "utun", "awdl", "llw", "gif", "stf", "anpi", "ap"))]
+
+
 async def _rp_connect(identifier, address, port):
-    """bonjour can answer with an address Python's hostname encoder rejects (a scoped IPv6,
-    'label too long'). pymobiledevice3 only skips OSError, so turn that into one and the
-    browse moves on to the device's next address instead of dropping the whole attempt."""
-    try:
-        return await _orig_rp_connect(identifier, address, port)
-    except (UnicodeError, ValueError) as e:
-        raise OSError(f"unusable address {address!r}: {e}") from e
+    """Two things go wrong with the addresses bonjour hands back, both on IPv6-only networks
+    (a T-Mobile iPhone hotspot is one), where the link-local address is the only one that works:
+    it can be scoped to the wrong interface (lo0), and some forms make Python's hostname
+    encoder raise UnicodeError, which pymobiledevice3 doesn't skip. So a link-local address
+    is tried on each real network interface, and anything unusable becomes an OSError, which
+    makes the browse move on to the next address."""
+    ip, _, scope = address.partition("%")
+    tries = [address]
+    if ip.lower().startswith("fe80"):
+        tries = [f"{ip}%{n}" for n in _lan_ifaces() if n != scope] + ([address] if scope and not scope.startswith("lo") else [])
+    # all candidates at once: a wrong interface hangs rather than failing, the right one answers
+    tasks = [asyncio.ensure_future(asyncio.wait_for(_orig_rp_connect(identifier, a, port), RP_CONNECT_S))
+             for a in tries]
+    won, last, refused = None, None, False
+    for fut in asyncio.as_completed(tasks):
+        try:
+            svc = await fut
+        except ConnectionTerminatedError as e:  # reached the phone; it rejected our pair record
+            last, refused = e, True
+            continue
+        except (Exception, asyncio.CancelledError) as e:
+            last = e
+            continue
+        if won is None:
+            won = svc
+            for t in tasks:
+                t.cancel()
+        else:  # a second interface also answered; one tunnel is enough
+            try:
+                await svc.close()
+            except Exception:
+                pass
+    if won is None:
+        if refused:
+            STALE.add(identifier)
+        raise OSError(f"unusable address {address!r}: {last!r}") from last
+    STALE.discard(identifier)
+    return won
 
 
 _ts.create_core_device_tunnel_service_using_remotepairing = _rp_connect
@@ -100,6 +152,10 @@ async def _wifi(serial):
         raise NoDeviceConnectedError(
             "Wi-Fi blocked by macOS: System Settings > Privacy & Security > Local Network, "
             "turn on your terminal app, then restart the bridge (or use the cable)"
+        ) from None
+    if not services and (want in STALE if want else STALE):
+        raise NoDeviceConnectedError(
+            "phone found on Wi-Fi but it refused this computer's pairing: plug the cable in once to pair again"
         ) from None
     if not services:
         raise NoDeviceConnectedError(
