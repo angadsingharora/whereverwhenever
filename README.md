@@ -80,7 +80,7 @@ after a restart.
 **Share:** the itinerary lives in the URL, so **Share** copies a link that rebuilds it. **Simulated iPhone** in the header opens a Find My-style phone that follows whatever the bridge sends. Keys: `/` search, `Esc` cancel, `Enter` confirm or go.
 
 **Plan in words:** with `ANTHROPIC_API_KEY` set and `pip install anthropic`, a text box
-appears: "gym for an hour, coffee at Blue Bottle, then home, by bike". Claude (Opus 5.5)
+appears: "gym for an hour, grab a coffee, then home, by bike". Claude (Opus 5.5)
 turns it into stops, mode and dwell times; the bridge geocodes each place itself, so the
 model never invents coordinates. You review the stops before anything moves.
 

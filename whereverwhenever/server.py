@@ -114,9 +114,18 @@ def finish_trip(hold_at):
 
 
 # ---------------------------------------------------------------- geocoding
-def geocode(q, near=None):
+def geocode(q, near=None, local=False):
     """Nominatim search with progressively simpler forms of the query. Biased towards `near`.
+    local=True is for everyday places ("gym", "Starbucks"): only matches within about 150 km
+    count and the closest one wins, so a coffee stop never lands in another country.
     Returns (lat, lng, short name) or None."""
+    if local and near:
+        for d in (0.15, 0.5, 1.5):
+            r = _geocode_once(q, near, box=d)
+            if r:
+                return r
+            time.sleep(1.0)  # Nominatim rate limit
+        return None
     base = re.sub(r"\s*\([^)]*\)", "", q).strip()  # drop "(RSF)"-style asides
     parts = [x.strip() for x in base.split(",") if x.strip()]
     variants = [q, base]
@@ -136,7 +145,32 @@ def geocode(q, near=None):
     return None
 
 
-def _geocode_once(q, near):
+def _nominatim(path, params):
+    url = f"https://nominatim.openstreetmap.org/{path}?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"User-Agent": "whereverwhenever/0.2 (location simulation testing)"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.load(r)
+
+
+def place_name(near):
+    """'Redmond, King County, Washington' for a coordinate, or '' when offline."""
+    try:
+        j = _nominatim("reverse", {"format": "json", "zoom": 12, "lat": near[0], "lon": near[1]})
+        parts = [x.strip() for x in j.get("display_name", "").split(",") if not x.strip().isdigit()]
+        return ", ".join(parts[:3])
+    except Exception:
+        return ""
+
+
+def _geocode_once(q, near, box=None):
+    if box and near:  # only inside the box; closest match wins
+        d = box
+        j = _nominatim("search", {"format": "json", "limit": 10, "q": q, "bounded": 1,
+                                  "viewbox": f"{near[1]-d},{near[0]+d},{near[1]+d},{near[0]-d}"})
+        if not j:
+            return None
+        b = min(j, key=lambda x: motion.haversine_m(near, (float(x["lat"]), float(x["lon"]))))
+        return float(b["lat"]), float(b["lon"]), b["display_name"].split(",")[0]
     params = {"format": "json", "limit": 1, "q": q}
     if near:
         d = 0.25
@@ -157,12 +191,20 @@ simulator. Output only JSON, no prose, matching:
 {"mode": "walk"|"bike"|"drive",
  "loop": bool,
  "cruise_mph": number|null,
- "stops": [{"query": string, "name": string, "dwell_min": number, "use_current": bool}]}
+ "stops": [{"query": string, "name": string, "dwell_min": number, "use_current": bool, "local": bool}]}
 
 Rules:
-- "query" is what you'd type into OpenStreetMap search: the place's common name plus the city,
-  e.g. "Blue Bottle Coffee, Berkeley" or "Rockridge BART, Oakland". No abbreviations in
-  parentheses, no descriptions, at most one comma. "name" is a short label (2-4 words).
+- "query" is what you'd type into OpenStreetMap search. "name" is a short label (2-4 words).
+- local=true for everyday places meant to be near the phone: a kind of place ("gym", "coffee",
+  "groceries") or a chain ("Starbucks", "Trader Joe's"). The query is then ONLY the chain name
+  or one OpenStreetMap category word, no city: gym, cafe, supermarket, restaurant, library,
+  park, pharmacy, gas station, school, bar, cinema. The nearest match is used.
+- local=false for a specific named place, address, landmark or city: the query is its common
+  name plus the city, e.g. "Space Needle, Seattle" or "Rockridge BART, Oakland"; take the city
+  from the context unless the user names another. No abbreviations in parentheses, no
+  descriptions, at most one comma.
+- "home", "my place", "back": the phone's current location (use_current=true, name "Home")
+  unless the user gave an address for it.
 - The first stop is where the journey starts. If the user doesn't say where they start, or says
   "from here"/"from where I am", make the first stop use_current=true with query "" and name "Here".
 - dwell_min is how long they linger at that stop; 0 for the start unless looping. Infer sensible
@@ -195,7 +237,10 @@ def plan_with_ai(text, near, now_local):
 
     client = anthropic.Anthropic()
     ctx = f"Context: it is {now_local}. "
-    ctx += f"The phone is currently near {near[0]:.4f}, {near[1]:.4f}. " if near else ""
+    if near:
+        where = place_name(near)
+        ctx += f"The phone is currently at {near[0]:.4f}, {near[1]:.4f}{' (' + where + ')' if where else ''}. "
+        time.sleep(1.0)  # Nominatim rate limit
     resp = client.messages.create(
         model="claude-opus-5-5",
         max_tokens=2000,
@@ -217,9 +262,10 @@ def plan_with_ai(text, near, now_local):
             stops.append({"lat": near[0], "lng": near[1], "name": s.get("name") or "Here",
                           "dwell_s": 60 * float(s.get("dwell_min") or 0)})
             continue
-        g = geocode(s.get("query", ""), near)
+        local = bool(s.get("local")) and bool(near)
+        g = geocode(s.get("query", ""), near, local=local)
         if not g:
-            raise RuntimeError(f"couldn't find '{s.get('query')}'")
+            raise RuntimeError(f"couldn't find '{s.get('query')}'" + (" near the phone" if local else ""))
         stops.append({"lat": g[0], "lng": g[1], "name": s.get("name") or g[2],
                       "dwell_s": 60 * float(s.get("dwell_min") or 0), "query": s.get("query")})
         time.sleep(1.0)  # Nominatim rate limit

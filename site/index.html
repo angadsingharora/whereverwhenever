@@ -223,7 +223,7 @@ whereverwhenever</pre>
    </div>
    <div class="sec">
     <div class="row" style="margin-top:0;flex-wrap:nowrap"><input id="q" type="text" placeholder="Place, address, or lat, lng"><button onclick="search()">Find</button></div>
-    <div id="ai" style="display:none;margin-top:8px"><textarea id="aiText" placeholder="Or describe it: gym for an hour, coffee at Blue Bottle, then home, by bike"></textarea>
+    <div id="ai" style="display:none;margin-top:8px"><textarea id="aiText" placeholder="Or describe it: gym for an hour, grab a coffee, then home, by bike"></textarea>
      <div class="row"><span id="aiNote" class="grow"></span><button id="aiBtn" onclick="aiPlan()">Plan with Claude</button></div></div>
     <div id="aiOff" style="display:none;margin-top:8px;font-size:12px;color:var(--faint)">Want to type the trip in words? Put an Anthropic API key in <span class="mono">~/.whereverwhenever/key</span> and restart the bridge.</div>
    </div>
@@ -570,9 +570,12 @@ function drawProfile(d){
   svg.appendChild(el('path',{d:path+`L${X(d.total_m)} ${Y(0)}L${X(0)} ${Y(0)}Z`,fill:'#2a6fbd',opacity:.07}));
   svg.appendChild(el('path',{d:path,fill:'none',stroke:'#17201b','stroke-width':1.4,'stroke-linejoin':'round'}));
   svg.appendChild(el('line',{x1:ml,x2:W-mr,y1:Y(d.cruise),y2:Y(d.cruise),stroke:'#1f7a4d','stroke-dasharray':'2 4',opacity:.7}));
+  let labEnd=-1e9;  // right edge of the last stop label drawn, so close stops don't overprint
   for(const e of d.events){
     if(e.kind==='stop'){svg.appendChild(el('line',{x1:X(e.s),x2:X(e.s),y1:mt,y2:H-mb,stroke:'#17201b','stroke-width':1}));
       const end=X(e.s)>W-70, tx=X(e.s)+(end?-3:3), an=end?'end':'start';
+      const lw=Math.max(String(e.label).length*6.2,e.dwell_s>0?34:0), x0=end?tx-lw:tx;
+      if(x0<labEnd+6)continue; labEnd=x0+lw;
       const t=el('text',{x:tx,y:mt+8,'font-size':10,fill:'#17201b','font-weight':600,'text-anchor':an});t.textContent=e.label;svg.appendChild(t);
       if(e.dwell_s>0){const t2=el('text',{x:tx,y:mt+19,'font-size':9,fill:'#6f7772',class:'mono','text-anchor':an});t2.textContent=ftime(e.dwell_s);svg.appendChild(t2);}}
     else if(e.kind==='light'){svg.appendChild(el('rect',{x:X(e.s)-1.5,y:Y(0)-8,width:3,height:8,fill:'#d08a00',rx:1}));
