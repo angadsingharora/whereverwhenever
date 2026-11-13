@@ -27,7 +27,38 @@ LAST = {"link": "", "udid": ""}  # how the most recent tunnel was reached
 PREF = {"mode": "auto"}  # auto: USB if a cable is in, else Wi-Fi.  usb / wifi: only that.
 MODES = ("auto", "usb", "wifi")
 WIFI_BROWSE_S = 4
-STALE = set()  # UDIDs whose Wi-Fi pair record the phone refused; re-paired on the next cable session
+STALE_FILE = os.path.join(os.path.expanduser("~"), ".whereverwhenever", "wifi_stale")
+
+
+class _Stale(set):
+    """UDIDs whose Wi-Fi pair record the phone refused; re-paired on the next cable session.
+    Kept on disk, because that cable session is usually a later run of the bridge."""
+
+    def _save(self):
+        try:
+            os.makedirs(os.path.dirname(STALE_FILE), exist_ok=True)
+            with open(STALE_FILE, "w", encoding="utf-8") as f:
+                f.write("\n".join(sorted(self)))
+        except OSError:
+            pass
+
+    def add(self, x):
+        if x not in self:
+            super().add(x)
+            self._save()
+
+    def discard(self, x):
+        if x in self:
+            super().discard(x)
+            self._save()
+
+
+STALE = _Stale()
+try:
+    with open(STALE_FILE, encoding="utf-8") as _f:
+        set.update(STALE, (ln.strip() for ln in _f if ln.strip()))
+except OSError:
+    pass
 RP_CONNECT_S = 4  # per address; a wrong interface just hangs
 
 
