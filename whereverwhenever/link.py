@@ -63,7 +63,8 @@ RP_CONNECT_S = 4  # per address; a wrong interface just hangs
 
 
 def log(msg):
-    print(time.strftime("%H:%M:%S"), msg, flush=True)
+    from . import cli  # late: cli imports this module
+    cli.log(msg)
 
 
 def wifi_paired(udid=None):

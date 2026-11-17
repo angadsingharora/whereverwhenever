@@ -34,8 +34,18 @@ from pymobiledevice3.services.dvt.instruments.location_simulation import Locatio
 from . import link  # noqa: F401  (patches the tunnel to try Wi-Fi when there's no cable)
 
 
+LOG_FILE = None  # set by the bridge: the same lines also go here, so a run can be read back later
+
+
 def log(msg):
-    print(time.strftime("%H:%M:%S"), msg, flush=True)
+    line = f"{time.strftime('%H:%M:%S')} {msg}"
+    print(line, flush=True)
+    if LOG_FILE:
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError:
+            pass
 
 
 # ---------- geometry ----------

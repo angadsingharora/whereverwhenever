@@ -41,6 +41,7 @@ LOCK = threading.Lock()
 WAKE = None      # asyncio.Event, created inside the loop
 LOOP = None
 TICK = 1.0
+HOLD_KEEPALIVE = 5.0  # re-send a held fix this often: a dead link is noticed, and the session stays warm
 
 
 # ---------------------------------------------------------------- persistence
@@ -91,7 +92,7 @@ def current_target(now):
     """What the phone should show right now. Returns (target, seconds until next check)."""
     trip = STATE["trip"]
     if not trip or TRAJ is None:
-        return STATE["target"], 15
+        return STATE["target"], HOLD_KEEPALIVE
     el = now - trip["t0"]
     if not TRAJ.loop and el >= TRAJ.total_s:
         end = [TRAJ.stops[-1].lat, TRAJ.stops[-1].lng]
@@ -425,7 +426,13 @@ async def apply_step(sess):
             if not moving:
                 log(f"set {tgt[0]:.6f}, {tgt[1]:.6f}")
         STATE["applied"] = tgt
-        STATE["set_at"] = time.time()
+        STATE["set_at"] = STATE["sent_at"] = time.time()
+    elif tgt is not None and sess and time.time() - STATE.get("sent_at", 0) >= HOLD_KEEPALIVE - 0.5:
+        # Holding still. The phone only keeps the fix while the session lives, and a dropped
+        # tunnel is silent until something is sent, so send it again: this raises if the link
+        # is gone, which is what gets it reopened instead of showing "holding" over a dead link.
+        await sess.set(*tgt)
+        STATE["sent_at"] = time.time()
     STATE["status"] = "ok: moving" if moving else ("ok: holding" if tgt else "ok: connected")
     return wait
 
@@ -520,6 +527,23 @@ def main():
                 return
     except Exception:
         pass
+    # Keep the last run on disk: when a link misbehaves, the reason is in here.
+    from . import cli
+    import logging
+    os.makedirs(HOME, exist_ok=True)
+    cli.LOG_FILE = os.path.join(HOME, "bridge.log")
+    try:
+        if os.path.exists(cli.LOG_FILE) and os.path.getsize(cli.LOG_FILE) > 2_000_000:
+            os.replace(cli.LOG_FILE, cli.LOG_FILE + ".1")
+        fh = logging.FileHandler(cli.LOG_FILE, encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", "%H:%M:%S"))
+        fh.setLevel(logging.INFO)
+        logging.getLogger("pymobiledevice3").addHandler(fh)
+        logging.getLogger("pymobiledevice3").setLevel(logging.INFO)
+    except OSError:
+        pass
+    log(f"--- bridge starting, link {a.link} ---")
+
     if not a.fresh:
         load_state()
     STATE["ai"] = ai_available()
