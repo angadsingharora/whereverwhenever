@@ -8,7 +8,7 @@ Serves the UI at http://127.0.0.1:8765 and accepts requests from the hosted site
 keeps the phone's location simulation alive, runs itineraries from motion.py,
 saves state to ~/.whereverwhenever/state.json so a restart resumes mid-route,
 and, if ANTHROPIC_API_KEY is set, plans itineraries from plain English.
-Ctrl+C clears the simulation and exits.
+Ctrl+C, kill, or closing the terminal clears the simulation and exits.
 """
 import argparse
 import asyncio
@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import motion
 from . import link
-from .cli import Session, log
+from .cli import Session, cancel_on_signals, log
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.join(os.path.expanduser("~"), ".whereverwhenever")
@@ -449,6 +449,7 @@ async def device_loop(rsd, udid):
     global WAKE, LOOP
     LOOP = asyncio.get_running_loop()
     WAKE = asyncio.Event()
+    cancel_on_signals()
     sess = Session(rsd, udid)
     backoff = 2
     try:
@@ -490,11 +491,7 @@ async def device_loop(rsd, udid):
                 await wait_wake(backoff)  # any POST (e.g. /link) retries at once
                 backoff = min(backoff * 2, 30)
     finally:
-        try:
-            await sess.clear()
-        except Exception:
-            pass
-        await sess.close()
+        await sess.release()
 
 
 async def fake_loop():
@@ -555,7 +552,7 @@ def main():
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
         asyncio.run(fake_loop() if a.no_device else device_loop(a.rsd, a.udid))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         log("bye")
 
 

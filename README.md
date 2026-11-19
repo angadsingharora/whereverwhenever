@@ -34,9 +34,13 @@ whereverwhenever does three things:
    (pymobiledevice3's userspace tunnel; the first USB session pairs the phone for
    Wi-Fi, promptless, so afterwards a shared network is enough).
 2. Opens the LocationSimulation channel and sends `simulateLocationWithLatitude:longitude:`.
-3. **Keeps that session open.** The phone only honours the fake location while the
-   session lives. Drop the cable, sleep the PC, kill the script, and real GPS is back
-   within seconds. whereverwhenever reconnects and re-applies the last pin on any drop.
+3. **Keeps that session open, and closes it cleanly.** whereverwhenever reconnects and
+   re-applies the last pin on any drop. Ending the session does *not* bring real GPS
+   back on its own: the phone keeps the last simulated fix until it's told to stop or
+   restarts. So on the way out (Ctrl+C, `kill`, closing the terminal) the bridge sends
+   the stop and waits for the phone to confirm it, reconnecting first if the link was
+   down. If the phone was out of reach then, or the process was force-killed
+   (`kill -9`, a crash, Windows closing the console), run `whereverwhenever-cli clear`.
 
 ## Use
 
@@ -90,7 +94,7 @@ whereverwhenever-cli pin 37.8716 -122.2727
 whereverwhenever-cli go 37.8716 -122.2727 37.8044 -122.2712 --mode drive   # A to B on roads, hold at B
 whereverwhenever-cli plan day.json --mode walk --loop   # [{lat,lng,name,dwell_s}, ...] round and round
 whereverwhenever-cli walk route.gpx --speed 1.4         # raw GPX track, no motion model
-whereverwhenever-cli clear
+whereverwhenever-cli clear                               # back to real GPS (also fixes a stuck spoof)
 ```
 `--seed N` replays the exact same lights, pauses and drift. `--straight` skips routing (offline).
 From a checkout, `python geoweb.py` and `python geofake.py` do the same.

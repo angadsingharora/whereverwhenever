@@ -14,8 +14,9 @@ No admin needed: uses pymobiledevice3's in-process userspace tunnel.
 Plug in once: that pairs the phone for Wi-Fi, after which the same network is enough.
 Pass --rsd ADDR PORT to reuse a tunnel from `pymobiledevice3 lockdown start-tunnel` instead.
 
-The device only honours the fake location while the DVT session is open, so this
-process must stay running. It reconnects and re-applies the last fix on any drop.
+Keep this process running: it reconnects and re-applies the last fix on any drop. On the
+way out (Ctrl+C, kill, closing the terminal) it clears the simulation and waits for the
+phone to confirm; the phone does not drop a simulated fix by itself when the session ends.
 """
 import argparse
 import asyncio
@@ -107,6 +108,7 @@ class Session:
         self.loc = None
         self.device = ""
         self.link = ""
+        self.spoofed = False  # set() reached the phone and no acknowledged clear() since
 
     async def open(self):
         await self.close()
@@ -142,10 +144,40 @@ class Session:
 
     async def set(self, lat, lng):
         await self.loc.set(lat, lng)
+        self.spoofed = True
 
     async def clear(self):
-        if self.loc:
+        """Stop the simulation and wait until the phone acknowledges it.
+
+        pymobiledevice3 sends stopLocationSimulation one-way, so the write only reaches the
+        local tunnel; tear the tunnel down right after (as on exit) and the phone never sees
+        it. The phone keeps a simulated fix after the session is gone, so a lost clear leaves
+        it spoofed. Asking for a reply (the phone sends an empty one in tens of ms) proves it
+        landed."""
+        if not self.loc:
+            return
+        ch = getattr(getattr(self.loc, "service", None), "_channel", None)
+        if ch is None:  # pymobiledevice3 internals moved: send it one-way and give it a moment
             await self.loc.clear()
+            await asyncio.sleep(1)
+        else:
+            await asyncio.wait_for(ch.invoke("stopLocationSimulation", expects_reply=True), 5)
+        self.spoofed = False
+
+    async def release(self, timeout=20):
+        """On the way out: put the phone back on real GPS, reconnecting once if the link is down."""
+        try:
+            if self.loc is None and self.spoofed:
+                log("link is down; reconnecting to clear the simulated location...")
+                await asyncio.wait_for(self.open(), timeout)
+            if self.loc is not None:
+                await self.clear()
+                log("cleared; the phone is back on real GPS")
+        except Exception as e:
+            log(f"couldn't clear the simulated location ({type(e).__name__}: {e}); the phone keeps it "
+                "until `whereverwhenever-cli clear` or a restart of the phone")
+        finally:
+            await self.close()
 
     async def close(self):
         if self.stack:
@@ -156,8 +188,27 @@ class Session:
         self.stack = self.loc = None
 
 
+def cancel_on_signals():
+    """Make `kill` (SIGTERM) and closing the terminal (SIGHUP) exit the way Ctrl+C does.
+
+    By default they end the process on the spot, skipping every `finally`, so the clear on
+    the way out never runs and the phone stays spoofed. Cancelling the main task instead
+    runs the same cleanup. (Not on Windows, whose event loop has no signal handlers.)"""
+    import signal
+
+    loop, task = asyncio.get_running_loop(), asyncio.current_task()
+    for name in ("SIGTERM", "SIGHUP"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            try:
+                loop.add_signal_handler(sig, task.cancel)
+            except (NotImplementedError, RuntimeError, ValueError):
+                pass
+
+
 # ---------- main loop ----------
 async def run(args):
+    cancel_on_signals()
     sess = Session(args.rsd, args.udid)
 
     if args.cmd == "clear":
@@ -213,12 +264,8 @@ async def run(args):
                 backoff = min(backoff * 2, 30)
     except (KeyboardInterrupt, asyncio.CancelledError):
         log("stopping; clearing simulation")
-        try:
-            await sess.clear()
-        except Exception:
-            pass
     finally:
-        await sess.close()
+        await sess.release()
 
 
 def main():
@@ -263,7 +310,7 @@ def main():
         a = p.parse_args()
         link.PREF["mode"] = a.link
         asyncio.run(run(a))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         pass
 
 
