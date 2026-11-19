@@ -8,6 +8,8 @@ Serves the UI at http://127.0.0.1:8765 and accepts requests from the hosted site
 keeps the phone's location simulation alive, runs itineraries from motion.py,
 saves state to ~/.whereverwhenever/state.json so a restart resumes mid-route,
 and, if ANTHROPIC_API_KEY is set, plans itineraries from plain English.
+Scheduled spoofs (a spot or an itinerary, once or on weekdays, with an optional end that
+hands the phone back to real GPS) run here too, so they need the bridge running.
 Ctrl+C, kill, or closing the terminal clears the simulation and exits.
 """
 import argparse
@@ -24,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import motion
 from . import link
+from . import schedule
 from .cli import Session, cancel_on_signals, log
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,11 +38,16 @@ ALLOWED_ORIGINS = {SITE, "https://geofake-pi.vercel.app", "https://whereverwhene
 ORIGIN_RE = re.compile(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$")
 
 STATE = {"target": None, "status": "starting", "device": "", "link": "", "link_pref": "auto", "applied": None, "set_at": None, "trip": None,
-         "ai": False, "version": "0.2.0"}
+         "ai": False, "version": "0.3.0",
+         "schedule": [],  # schedule.py entries
+         "by": None}      # id of the schedule entry that put the phone where it is, until someone moves it
 TRAJ = None      # motion.Trajectory for the running itinerary
 LOCK = threading.Lock()
 WAKE = None      # asyncio.Event, created inside the loop
 LOOP = None
+SCHED_WAKE = None  # asyncio.Event: re-check the schedule now
+SCHED_TASK = None
+SCHED_TICK = 2.0
 TICK = 1.0
 HOLD_KEEPALIVE = 5.0  # re-send a held fix this often: a dead link is noticed, and the session stays warm
 
@@ -50,13 +58,15 @@ def save_state():
         os.makedirs(HOME, exist_ok=True)
         with open(STATE_FILE + ".tmp", "w", encoding="utf-8") as f:
             json.dump({"target": STATE["target"],
-                       "trip": {"t0": STATE["trip"]["t0"], "traj": TRAJ.to_json()} if TRAJ else None}, f)
+                       "trip": {"t0": STATE["trip"]["t0"], "traj": TRAJ.to_json()} if TRAJ else None,
+                       "schedule": STATE["schedule"], "by": STATE["by"]}, f)
         os.replace(STATE_FILE + ".tmp", STATE_FILE)
     except Exception as e:
         log(f"could not save state: {e}")
 
 
-def load_state():
+def load_state(spoof=True):
+    """Restore schedules, and unless spoof=False (--fresh) the pin or itinerary too."""
     global TRAJ
     if not os.path.exists(STATE_FILE):
         return
@@ -65,6 +75,12 @@ def load_state():
     except Exception as e:
         log(f"ignoring unreadable state.json: {e}")
         return
+    STATE["schedule"] = [e for e in j.get("schedule") or [] if isinstance(e, dict) and e.get("id")]
+    if STATE["schedule"]:
+        log(f"{len(STATE['schedule'])} scheduled spoof(s) loaded")
+    if not spoof:
+        return
+    STATE["by"] = j.get("by")
     STATE["target"] = j.get("target")
     tr = j.get("trip")
     if tr:
@@ -112,6 +128,41 @@ def finish_trip(hold_at):
     STATE["target"] = hold_at
     STATE["trip"], TRAJ = None, None
     save_state()
+
+
+# ---------------------------------------------------------------- requests
+class Bad(ValueError):
+    """A request we refuse, with a message meant for the user."""
+
+
+def parse_trip(body):
+    """Validate a trip as /trip, /preview and scheduled trips take it. Returns motion.build kwargs."""
+    stops = body.get("stops") or [body.get("from"), body.get("to")]
+    st = []
+    for s in stops:
+        if isinstance(s, dict):
+            st.append(motion.Stop(float(s["lat"]), float(s["lng"]), str(s.get("name", ""))[:80],
+                                  max(0.0, float(s.get("dwell_s") or 0))))
+        else:
+            st.append(motion.Stop(float(s[0]), float(s[1])))
+    if len(st) < 2 or any(not (-90 <= s.lat <= 90 and -180 <= s.lng <= 180) for s in st):
+        raise Bad("need 2+ valid stops")
+    mode = body.get("mode") or "drive"
+    if mode not in motion.PROFILES:
+        raise Bad("mode")
+    cruise = body.get("cruise") or body.get("speed")
+    cruise = float(cruise) if cruise else None
+    if cruise is not None and not (0.1 <= cruise <= 150):
+        raise Bad("cruise out of range")
+    return {"stops": st, "mode": mode, "seed": body.get("seed"), "cruise": cruise,
+            "loop": bool(body.get("loop")), "online": not body.get("straight")}
+
+
+def parse_pin(body):
+    lat, lng = float(body["lat"]), float(body["lng"])
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        raise Bad("out of range")
+    return lat, lng
 
 
 # ---------------------------------------------------------------- geocoding
@@ -330,40 +381,23 @@ class H(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 return self._json({"error": "bad request: body must be a JSON object"}, 400)
             if self.path == "/set":
-                lat, lng = float(body["lat"]), float(body["lng"])
-                if not (-90 <= lat <= 90 and -180 <= lng <= 180):
-                    return self._json({"error": "out of range"}, 400)
+                lat, lng = parse_pin(body)
                 with LOCK:
                     STATE["trip"], TRAJ = None, None
                     STATE["target"] = [lat, lng]
+                    STATE["by"] = None
                 reply = {"ok": True}
             elif self.path in ("/trip", "/preview"):
-                stops = body.get("stops") or [body.get("from"), body.get("to")]
-                st = []
-                for s in stops:
-                    if isinstance(s, dict):
-                        st.append(motion.Stop(float(s["lat"]), float(s["lng"]), str(s.get("name", ""))[:80],
-                                              max(0.0, float(s.get("dwell_s") or 0))))
-                    else:
-                        st.append(motion.Stop(float(s[0]), float(s[1])))
-                if len(st) < 2 or any(not (-90 <= s.lat <= 90 and -180 <= s.lng <= 180) for s in st):
-                    return self._json({"error": "need 2+ valid stops"}, 400)
-                mode = body.get("mode") or "drive"
-                if mode not in motion.PROFILES:
-                    return self._json({"error": "mode"}, 400)
-                cruise = body.get("cruise") or body.get("speed")
-                cruise = float(cruise) if cruise else None
-                if cruise is not None and not (0.1 <= cruise <= 150):
-                    return self._json({"error": "cruise out of range"}, 400)
-                traj = motion.build(st, mode, body.get("seed"), cruise, bool(body.get("loop")),
-                                    online=not body.get("straight"), log=log)
+                kw = parse_trip(body)
+                traj = motion.build(**kw, log=log)
                 if self.path == "/preview":  # plan only: same seed on /trip reproduces it exactly
                     return self._json(traj.describe())
                 with LOCK:
                     TRAJ = traj
                     STATE["trip"] = {"t0": time.time(), **public(traj)}
-                log(f"itinerary: {len(st)} stops, {traj.total_m:.0f} m, {traj.total_s / 60:.1f} min, "
-                    f"{mode}{' loop' if traj.loop else ''}, seed {traj.seed}")
+                    STATE["by"] = None
+                log(f"itinerary: {len(kw['stops'])} stops, {traj.total_m:.0f} m, {traj.total_s / 60:.1f} min, "
+                    f"{kw['mode']}{' loop' if traj.loop else ''}, seed {traj.seed}")
                 reply = {**traj.describe(), "t0": STATE["trip"]["t0"]}
             elif self.path == "/plan":
                 if not STATE["ai"]:
@@ -381,6 +415,7 @@ class H(BaseHTTPRequestHandler):
                 return self._json(reply)
             elif self.path == "/stop":
                 with LOCK:
+                    STATE["by"] = None
                     if TRAJ:
                         tgt, _ = current_target(time.time())
                         finish_trip(tgt)
@@ -390,6 +425,46 @@ class H(BaseHTTPRequestHandler):
                 with LOCK:
                     STATE["trip"], TRAJ = None, None
                     STATE["target"] = None
+                    STATE["by"] = None
+                reply = {"ok": True}
+            elif self.path == "/schedule":
+                w = body.get("what") or {}
+                if w.get("kind") == "pin":
+                    lat, lng = parse_pin(w)
+                    what = {"kind": "pin", "lat": lat, "lng": lng}
+                elif w.get("kind") == "trip":
+                    kw = parse_trip(w)
+                    what = {"kind": "trip", "stops": [vars(s) for s in kw["stops"]], "mode": kw["mode"],
+                            "loop": kw["loop"], "cruise": kw["cruise"], "seed": kw["seed"], "straight": not kw["online"]}
+                else:
+                    raise Bad("schedule a spot (what.kind = pin) or an itinerary (what.kind = trip)")
+                try:
+                    e = schedule.created(schedule.validate(body, what), time.time())
+                except ValueError as ex:
+                    raise Bad(str(ex)) from None
+                with LOCK:
+                    if len(STATE["schedule"]) >= 50:
+                        raise Bad("that's 50 schedules already; delete some first")
+                    STATE["schedule"].append(e)
+                log(f"scheduled {e['name']}: {describe_entry(e)}")
+                reply = {**e, "starts_now": e["fired"] is None and schedule.last_start(e, time.time()) is not None}
+            elif self.path in ("/schedule/delete", "/schedule/enable"):
+                eid = str(body.get("id"))
+                with LOCK:
+                    e = next((x for x in STATE["schedule"] if x["id"] == eid), None)
+                    if e is None:
+                        return self._json({"error": "no such schedule"}, 404)
+                    if self.path == "/schedule/delete":
+                        STATE["schedule"].remove(e)
+                        e["enabled"] = False
+                    elif bool(body.get("enabled")) != e["enabled"]:
+                        e["enabled"] = bool(body.get("enabled"))
+                        if e["enabled"]:
+                            schedule.arm(e, time.time())
+                    if not e["enabled"]:
+                        e["until"] = None
+                        if release_by(eid):
+                            log(f"schedule: {e['name']} turned off while it had the phone; back to real GPS")
                 reply = {"ok": True}
             elif self.path == "/link":
                 m = body.get("mode")
@@ -402,11 +477,109 @@ class H(BaseHTTPRequestHandler):
                 reply = {"ok": True}
             else:
                 return self._json({"error": "no"}, 404)
+        except Bad as e:
+            return self._json({"error": str(e)}, 400)
         except (KeyError, ValueError, TypeError, AttributeError, IndexError) as e:
             return self._json({"error": f"bad request: {e}"}, 400)
         save_state()
         LOOP.call_soon_threadsafe(WAKE.set)
+        if SCHED_WAKE:
+            LOOP.call_soon_threadsafe(SCHED_WAKE.set)
         return self._json(reply)
+
+
+# ---------------------------------------------------------------- schedule
+def describe_entry(e):
+    days = e["days"]
+    when = (e["date"] if not days else "every day" if len(days) == 7 else "weekdays" if days == [0, 1, 2, 3, 4]
+            else "weekends" if days == [5, 6] else ",".join("Mon Tue Wed Thu Fri Sat Sun".split()[d] for d in days))
+    w = e["what"]
+    what = f"pin {w['lat']:.5f}, {w['lng']:.5f}" if w["kind"] == "pin" else f"{len(w['stops'])}-stop {w['mode']} itinerary"
+    return f"{what}, {when} {e['start']}" + (f"-{e['end']}" if e["end"] else "")
+
+
+def release_by(eid):
+    """A schedule's window closed or it was switched off: back to real GPS, but only if that
+    schedule still has the phone. If you moved it yourself since, it's yours. Call under LOCK."""
+    global TRAJ
+    if not eid or STATE["by"] != eid:
+        return False
+    STATE["trip"], TRAJ = None, None
+    STATE["target"] = None
+    STATE["by"] = None
+    return True
+
+
+async def start_entry(e):
+    global TRAJ
+    w, until = e["what"], (f" until {time.strftime('%a %H:%M', time.localtime(e['until']))}" if e.get("until") else "")
+    if w["kind"] == "pin":
+        with LOCK:
+            STATE["trip"], TRAJ = None, None
+            STATE["target"] = [w["lat"], w["lng"]]
+            STATE["by"] = e["id"]
+        log(f"schedule: {e['name']} started, pin {w['lat']:.6f}, {w['lng']:.6f}{until}")
+        return
+    traj = await asyncio.to_thread(lambda: motion.build(**parse_trip(w), log=log))  # routing takes a moment
+    with LOCK:
+        if not e["enabled"]:
+            return  # switched off or deleted while the route was being built
+        TRAJ = traj
+        STATE["trip"] = {"t0": time.time(), **public(traj)}
+        STATE["by"] = e["id"]
+    log(f"schedule: {e['name']} started, {len(traj.stops)} stops, {traj.total_s / 60:.1f} min{until}")
+
+
+async def schedule_tick(now):
+    todo, changed = [], False
+    with LOCK:
+        for e in STATE["schedule"]:
+            for ev in schedule.step(e, now):
+                changed = True
+                if ev == "end":
+                    if release_by(e["id"]):
+                        log(f"schedule: {e['name']} ended; back to real GPS")
+                    else:
+                        log(f"schedule: {e['name']} ended; the phone was moved by hand since, so it stays put")
+                elif ev == "missed":
+                    log(f"schedule: missed {e['name']} at {time.strftime('%a %H:%M', time.localtime(e['fired']))}"
+                        " (the bridge wasn't running)")
+                else:
+                    todo.append(e)
+    for e in todo:
+        try:
+            await start_entry(e)
+        except Exception as ex:
+            log(f"schedule: {e['name']} couldn't start: {ex!r}")
+    with LOCK:
+        if any(schedule.finished(e) for e in STATE["schedule"]):
+            STATE["schedule"] = [e for e in STATE["schedule"] if not schedule.finished(e)]
+    if changed:
+        save_state()
+        if WAKE:
+            WAKE.set()
+
+
+async def schedule_loop():
+    """Runs beside the device loop, phone or no phone: a start that comes while the link is down
+    still takes effect, and the device loop pushes it as soon as the phone is back."""
+    global SCHED_WAKE
+    SCHED_WAKE = asyncio.Event()
+    while True:
+        try:
+            await schedule_tick(time.time())
+        except Exception as e:
+            log(f"schedule: {e!r}")
+        SCHED_WAKE.clear()
+        try:
+            await asyncio.wait_for(SCHED_WAKE.wait(), SCHED_TICK)
+        except asyncio.TimeoutError:
+            pass
+
+
+def start_schedule():
+    global SCHED_TASK
+    SCHED_TASK = asyncio.get_running_loop().create_task(schedule_loop(), name="schedule")
 
 
 # ---------------------------------------------------------------- device loop
@@ -450,6 +623,7 @@ async def device_loop(rsd, udid):
     LOOP = asyncio.get_running_loop()
     WAKE = asyncio.Event()
     cancel_on_signals()
+    start_schedule()
     sess = Session(rsd, udid)
     backoff = 2
     try:
@@ -498,6 +672,8 @@ async def fake_loop():
     global WAKE, LOOP
     LOOP = asyncio.get_running_loop()
     WAKE = asyncio.Event()
+    cancel_on_signals()
+    start_schedule()
     while True:
         wait = await apply_step(None)
         STATE["status"] = STATE["status"].replace("ok: connected", "ok: no-device mode")
@@ -512,7 +688,7 @@ def main():
     p.add_argument("--link", choices=link.MODES, default="auto",
                    help="usb: cable only. wifi: same network only (plug in once first to pair). auto: cable if in, else Wi-Fi")
     p.add_argument("--no-device", action="store_true", help="UI only, for testing without a phone")
-    p.add_argument("--fresh", action="store_true", help="ignore saved state, start with no spoof")
+    p.add_argument("--fresh", action="store_true", help="start with no spoof: drop the saved pin or itinerary (schedules stay)")
     p.add_argument("--no-browser", action="store_true", help="don't open the UI automatically")
     a = p.parse_args()
     link.PREF["mode"] = STATE["link_pref"] = a.link
@@ -541,8 +717,7 @@ def main():
         pass
     log(f"--- bridge starting, link {a.link} ---")
 
-    if not a.fresh:
-        load_state()
+    load_state(spoof=not a.fresh)
     STATE["ai"] = ai_available()
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whereverwhenever"
-version = "0.2.0"
+version = "0.3.0"
 description = "Your iPhone, wherever, whenever. Location spoofing with a motion model that moves like a real person."
 readme = "README.md"
 requires-python = ">=3.10"

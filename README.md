@@ -81,6 +81,17 @@ profile. **Stop here** freezes it. The bridge does the moving, so the tab can be
 a running itinerary is saved to `~/.whereverwhenever/state.json` and resumes mid-route
 after a restart.
 
+**Schedule:** spoof later, or on a routine. Pick a spot (click the map, **Schedule**) or
+use the itinerary's stops, choose once on a date, daily, weekdays or any days, a start time
+and an optional **until**. At the start the bridge teleports the phone or starts the
+route; at **until** it goes back to real GPS, unless you've moved the phone by hand in
+between, in which case it's left alone. An until earlier than the start runs overnight.
+A window that's already open when you add it starts right away. Schedules are saved in
+`state.json` (`--fresh` drops the saved pin but keeps them) and run on the bridge, so the
+computer has to be on, awake and in reach of the phone at those times. If the bridge was
+down, a window still open when it comes back starts late; a start with no until that was
+missed by more than 15 minutes is skipped and logged.
+
 **Share:** the itinerary lives in the URL, so **Share** copies a link that rebuilds it. **Simulated iPhone** in the header opens a Find My-style phone that follows whatever the bridge sends. Keys: `/` search, `Esc` cancel, `Enter` confirm or go.
 
 **Plan in words:** with `ANTHROPIC_API_KEY` set and `pip install anthropic`, a text box

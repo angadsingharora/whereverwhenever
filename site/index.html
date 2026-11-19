@@ -45,7 +45,8 @@
  .sec{padding:14px 18px;border-bottom:1px solid var(--line)}
  .sec h2{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);display:flex;justify-content:space-between;align-items:baseline}
  .sec h2 span{text-transform:none;letter-spacing:0;font-weight:400;color:var(--mut);font-size:11px}
- input[type=text],input[type=number],textarea{font:inherit;color:var(--fg);background:#fff;border:1px solid var(--line2);border-radius:7px;padding:8px 10px;outline:none;width:100%;transition:border-color .12s,box-shadow .12s}
+ input[type=text],input[type=number],input[type=date],input[type=time],textarea{font:inherit;color:var(--fg);background:#fff;border:1px solid var(--line2);border-radius:7px;padding:8px 10px;outline:none;width:100%;transition:border-color .12s,box-shadow .12s}
+ input[type=date],input[type=time]{width:auto;padding:6px 8px}
  input:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px #1f7a4d22}
  textarea{resize:vertical;min-height:56px}
  button{font:inherit;font-weight:500;color:var(--fg);background:#fff;border:1px solid var(--line2);border-radius:7px;padding:7px 11px;cursor:pointer;line-height:1.2;transition:background .12s,border-color .12s}
@@ -135,6 +136,21 @@
  #nobridge p{margin:0 0 8px;color:var(--mut)}
  #nobridge pre{margin:6px 0;padding:8px 10px;background:#fff;border:1px solid var(--line);border-radius:6px;font-size:12px;overflow:auto;user-select:all}
  #nobridge ol{margin:6px 0 0 18px;padding:0;color:var(--mut)}
+ /* schedule */
+ #schedSec .lbl{width:44px;flex:none;color:var(--mut);font-size:12px}
+ #schedSec .seg button{padding:6px 9px}
+ #schDays button{width:30px;padding:6px 0;text-align:center}
+ #schWhatT{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mut);font-size:12px}
+ #schWhatT b{color:var(--fg);font-weight:500}
+ #schNote{color:var(--faint);font-size:11.5px;margin-top:8px;line-height:1.45}
+ #sched{margin-bottom:6px}
+ #sched li{cursor:default;align-items:flex-start}
+ #sched li .n{white-space:normal}
+ #sched li .n b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #sched li .n span{display:block;color:var(--mut);font-size:11.5px}
+ #sched li.off .n{opacity:.5}
+ #sched li .now{color:var(--acc);font-weight:500}
+ #sched li button{padding:2px 7px;font-size:11.5px}
  /* profile panel */
  #prof{border-top:1px solid var(--line);background:#fff;display:none}
  #prof.show{display:block}
@@ -153,7 +169,7 @@
  .maplibregl-popup-content{font:13px/1.4 Inter,sans-serif;padding:10px 12px;border-radius:8px;box-shadow:var(--shadow);border:1px solid var(--line)}
  .maplibregl-popup-content b{display:block;margin-bottom:3px;font-weight:600}
  .maplibregl-popup-tip{border-top-color:#fff!important}
- .pop{display:flex;gap:6px;margin-top:8px}.pop button{padding:5px 9px;font-size:12px}
+ .pop{display:flex;gap:6px;margin-top:8px}.pop button{padding:5px 9px;font-size:12px;white-space:nowrap}
  .pin{width:16px;height:16px;border-radius:50%;background:var(--sec);border:2.5px solid #fff;box-shadow:0 0 0 1.5px var(--sec),0 2px 6px #0004}
  .pinwrap{position:relative;width:16px;height:16px}
  .arrow{position:absolute;left:50%;top:50%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:15px solid var(--sec);transform-origin:50% 100%;margin:-17px 0 0 -6px;filter:drop-shadow(0 1px 1px #0003)}
@@ -238,10 +254,21 @@ whereverwhenever</pre>
     <h2>Itinerary <span id="legLbl"></span></h2>
     <table id="stops"></table>
     <div class="row"><button id="addBtn" onclick="toggleAdd()">+ Add stop</button><button onclick="useCurrent()" title="start from where the phone is">From pin</button><span class="grow"></span><button class="quiet" id="shareBtn" onclick="shareLink()" title="copy a link to this itinerary">Share</button><button class="quiet" onclick="resetTrip()">Clear</button></div>
-    <div class="row"><div class="seg"><button data-mode="walk" onclick="chip(this)">Walk</button><button data-mode="bike" onclick="chip(this)">Bike</button><button data-mode="drive" class="sel" onclick="chip(this)">Drive</button></div>
+    <div class="row"><div class="seg" id="modeSeg"><button data-mode="walk" onclick="chip(this)">Walk</button><button data-mode="bike" onclick="chip(this)">Bike</button><button data-mode="drive" class="sel" onclick="chip(this)">Drive</button></div>
      <input id="speed" type="number" min="0.5" step="1" placeholder="auto" style="width:66px"><span style="color:var(--mut)">mph</span><span class="grow"></span><label class="ck"><input type="checkbox" id="loop" onchange="invalidate()">loop</label></div>
     <div id="tripInfo"></div>
     <div class="row"><button id="planBtn" onclick="planTrip()" disabled>Plan route</button><button class="primary" id="goBtn" onclick="startTrip()" disabled>Go</button><button id="stopBtn" onclick="stopTrip()" style="display:none">Stop here</button></div>
+   </div>
+   <div class="sec" id="schedSec" style="display:none">
+    <h2>Schedule <span id="schedSub"></span></h2>
+    <ul class="list" id="sched"></ul>
+    <div class="row"><span class="lbl">What</span><div class="seg" id="schWhatSeg"><button data-w="pin" class="sel" onclick="schWhat('pin')">Spot</button><button data-w="trip" onclick="schWhat('trip')" title="the stops above, with their route">Itinerary</button></div><span id="schWhatT" class="grow"></span></div>
+    <div class="row"><span class="lbl">When</span><div class="seg" id="schRepSeg"><button data-r="once" class="sel" onclick="schRep('once')">Once</button><button data-r="daily" onclick="schRep('daily')">Daily</button><button data-r="weekdays" onclick="schRep('weekdays')">Weekdays</button><button data-r="days" onclick="schRep('days')">Days</button></div></div>
+    <div class="row" id="schDateRow"><span class="lbl"></span><input type="date" id="schDate"></div>
+    <div class="row" id="schDaysRow" style="display:none"><span class="lbl"></span><div class="seg" id="schDays"></div></div>
+    <div class="row"><span class="lbl">From</span><input type="time" id="schStart"><span style="color:var(--mut)">until</span><input type="time" id="schEnd" title="optional: then back to real GPS"><button class="quiet" onclick="$('schEnd').value=''" title="no end: stays until you move it">×</button></div>
+    <div class="row"><input type="text" id="schName" placeholder="Name (optional)"><button class="primary" id="schBtn" onclick="addSched()">Schedule</button></div>
+    <div id="schNote">Runs on the bridge, so leave this computer on, awake and near the phone. With an <b>until</b> time the phone goes back to real GPS then, unless you've moved it yourself.</div>
    </div>
    <div class="sec"><h2>Saved</h2><ul class="list" id="saved"></ul></div>
    <div class="sec"><h2>Recent</h2><ul class="list" id="recent"></ul></div>
@@ -384,12 +411,12 @@ async function clearLoc(){
   $('saveBtn').disabled=$('copyBtn').disabled=true; toast('Back to real GPS'); poll();
 }
 let preview=null;
-const previewHtml=(lat,lng)=>`<b>Move the phone here?</b><span class="mono">${fmt(lat,lng)}</span><div class="pop"><button class="primary" onclick="confirmPreview()">Teleport</button><button onclick="previewToStop()">Add as stop</button><button class="quiet" onclick="cancelPreview()">Cancel</button></div>`;
+const previewHtml=(lat,lng)=>`<b>Move the phone here?</b><span class="mono">${fmt(lat,lng)}</span><div class="pop"><button class="primary" onclick="confirmPreview()">Teleport</button><button onclick="previewToStop()">Add as stop</button><button onclick="previewToSched()" title="move the phone here later">Schedule</button><button class="quiet" onclick="cancelPreview()">Cancel</button></div>`;
 let previewName='';
 function showPreview(lat,lng,name){
   previewName=name||'';
   if(!preview){preview=mk('<div class="ghost"></div>',{draggable:true,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
-    preview.setPopup(new maplibregl.Popup({offset:12,closeButton:false,closeOnClick:false}).setHTML(previewHtml(lat,lng)));
+    preview.setPopup(new maplibregl.Popup({offset:12,closeButton:false,closeOnClick:false,maxWidth:'none'}).setHTML(previewHtml(lat,lng)));
     preview.on('dragend',()=>{const q=preview.getLngLat();showPreview(q.lat,q.lng);});}
   else{preview.setLngLat([lng,lat]);preview.getPopup().setHTML(previewHtml(lat,lng));}
   if(!preview.getPopup().isOpen())preview.togglePopup();
@@ -397,6 +424,7 @@ function showPreview(lat,lng,name){
 function cancelPreview(){if(preview){preview.remove();preview=null;}}
 function confirmPreview(){if(!preview)return;const q=preview.getLngLat(),n=previewName;cancelPreview();setLoc(q.lat,q.lng,n);}
 function previewToStop(){if(!preview)return;const q=preview.getLngLat(),n=previewName;cancelPreview();addStop(q.lat,q.lng,n);}
+function previewToSched(){if(!preview)return;const q=preview.getLngLat(),n=previewName;cancelPreview();schPick(q.lat,q.lng,n);}
 map.on('click',e=>{if(adding)addStop(e.lngLat.lat,e.lngLat.lng);else showPreview(e.lngLat.lat,e.lngLat.lng);});
 map.on('rotate',()=>{if(marker&&cur)place(cur[0],cur[1],lastHdg);});
 let lastHdg=null;
@@ -446,7 +474,7 @@ function useCurrent(){if(!cur){toast('Teleport somewhere first');return;}if(stop
 function clearStops(){stops.forEach(s=>s.m.remove());stops=[];}
 function relabel(){stops.forEach((s,k)=>{s.m.getElement().textContent=L_(k);});}
 function delStop(i){stops[i].m.remove();stops.splice(i,1);relabel();invalidate();}
-function chip(b){document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('sel',x===b));mode=b.dataset.mode;$('speed').value='';invalidate();}
+function chip(b){document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.toggle('sel',x===b));mode=b.dataset.mode;$('speed').value='';invalidate();}
 $('speed').addEventListener('input',invalidate);
 function invalidate(){planned=null;clearRoute();$('prof').classList.remove('show');map.resize();updateTrip();}
 function clearRoute(){setLine('route',null);setLine('done',null);}
@@ -471,7 +499,7 @@ function writeHash(){if(!hashRead)return;clearTimeout(hashT);hashT=setTimeout(()
 async function readHash(){
   const h=new URLSearchParams(location.hash.slice(1)); if(!h.get('s'))return false;
   mode=['walk','bike','drive'].includes(h.get('m'))?h.get('m'):'drive';
-  document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('sel',x.dataset.mode===mode));
+  document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.toggle('sel',x.dataset.mode===mode));
   $('loop').checked=h.get('loop')==='1'; $('speed').value=h.get('v')||'';
   for(const part of h.get('s').split(';')){const [la,ln,dw,nm]=part.split(',');if(isFinite(+la)&&isFinite(+ln))await addStop(+la,+ln,nm?decodeURIComponent(nm):'',+dw||0);}
   if(stops.length)fitTo(stops.map(s=>[s.lat,s.lng]),80);
@@ -529,7 +557,7 @@ function pointAt(d,s){const c=d._cum;let lo=0,hi=c.length-1;while(lo<hi){const m
   if(lo>=c.length-1)return d.route[c.length-1];const f=(s-c[lo])/Math.max(1e-9,c[lo+1]-c[lo]);const a=d.route[lo],b=d.route[lo+1];return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f];}
 function beginRun(d){
   running=true; planned=d; placeName=''; mode=d.mode||mode; $('loop').checked=!!d.loop;
-  document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('sel',x.dataset.mode===mode));
+  document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.toggle('sel',x.dataset.mode===mode));
   $('stopBtn').style.display=''; $('goBtn').disabled=$('planBtn').disabled=true;
   setLine('dash',null);
   if(!d._cum)drawRoute(d);
@@ -617,7 +645,7 @@ async function aiPlan(){
   if(!r||!r.ok){const e=r?await r.json().catch(()=>({})):{};$('aiNote').textContent=e.error||'Bridge not reachable';return;}
   const p=await r.json(); if(running)endTrip(); clearStops();
   for(const s of p.stops)await addStop(s.lat,s.lng,s.name,s.dwell_s);
-  mode=p.mode; document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('sel',x.dataset.mode===mode));
+  mode=p.mode; document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.toggle('sel',x.dataset.mode===mode));
   $('loop').checked=p.loop; $('speed').value=p.cruise?(p.cruise*MPH).toFixed(0):'';
   $('aiNote').textContent=`${p.stops.length} stops, ${p.mode}${p.loop?', looping':''}. Check them, then Plan route.`;
   fitTo(p.stops.map(s=>[s.lat,s.lng]),80); invalidate(); planTrip();
@@ -704,7 +732,67 @@ async function poll(){ fitCanvas();
     if(s.applied)showLive(s.applied,t.heading);
   }else if(running){endTrip('Arrived');if(s.applied){showLive(s.applied);pushRecent(s.applied[0],s.applied[1]);reverse(s.applied[0],s.applied[1]);}}
   else if(s.applied&&!cur)showLive(s.applied);
+  $('schedSec').style.display=s.schedule?'':'none';  // an older bridge has no scheduler
+  if(s.schedule)renderSched(s);
+  schWhatText();
   sim.update(s,t);
+}
+
+// ---------- schedule ----------
+// Times are the bridge computer's local clock; days are 0 = Monday, as the bridge stores them.
+const DAYN=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+let schW='pin', schR='once', schSpot=null, schedKey='', schedList=[];
+$('schDays').innerHTML=DAYN.map((d,i)=>`<button data-d="${i}" onclick="this.classList.toggle('sel')" title="${d}">${d[0]}</button>`).join('');
+(function(){const d=new Date(),p=n=>String(n).padStart(2,'0');d.setHours(d.getHours()+1);
+  $('schDate').value=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;$('schStart').value=`${p(d.getHours())}:00`;})();
+function schWhat(w){schW=w;document.querySelectorAll('#schWhatSeg button').forEach(b=>b.classList.toggle('sel',b.dataset.w===w));schWhatText();}
+function schRep(r){schR=r;document.querySelectorAll('#schRepSeg button').forEach(b=>b.classList.toggle('sel',b.dataset.r===r));
+  $('schDateRow').style.display=r==='once'?'':'none';$('schDaysRow').style.display=r==='days'?'':'none';}
+function schPick(lat,lng,name){schSpot={lat,lng,name:name||''};schWhat('pin');if(name&&!$('schName').value)$('schName').value=name.split(',')[0];
+  $('schedSec').scrollIntoView({behavior:'smooth',block:'nearest'});$('schStart').focus();if(!name)shortName(lat,lng).then(n=>{if(schSpot&&schSpot.lat===lat&&n){schSpot.name=n;schWhatText();}}).catch(()=>{});}
+function schSpotNow(){return schSpot||(cur?{lat:cur[0],lng:cur[1],name:placeName}:null);}
+function schWhatText(){const e=$('schWhatT');
+  if(schW==='trip'){e.innerHTML=stops.length>=2?`<b>${stops.length} stops</b> · ${mode}${$('loop').checked?' · loop':''}`:'add 2+ stops above first';return;}
+  const p=schSpotNow();e.innerHTML=p?`<b>${esc(p.name?p.name.split(',')[0]:fmt(p.lat,p.lng))}</b>`:'click the map, then <b>Schedule</b>';}
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function daysText(e){const d=e.days;if(!d.length){const t=new Date(e.date+'T00:00');return t.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'});}
+  const k=d.join();return k==='0,1,2,3,4,5,6'?'Daily':k==='0,1,2,3,4'?'Weekdays':k==='5,6'?'Weekends':d.map(i=>DAYN[i]).join(' ');}
+const hmL=h=>new Date(`2000-01-01T${h}`).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+const whenAt=t=>new Date(t*1000).toLocaleString([],{weekday:'short',hour:'numeric',minute:'2-digit'});
+async function addSched(){
+  const b={name:$('schName').value.trim(),start:$('schStart').value,end:$('schEnd').value||null};
+  if(!b.start){toast('Pick a start time');return;}
+  if(schR==='once'){if(!$('schDate').value){toast('Pick a date');return;}b.date=$('schDate').value;b.days=[];}
+  else b.days=schR==='daily'?[0,1,2,3,4,5,6]:schR==='weekdays'?[0,1,2,3,4]:[...document.querySelectorAll('#schDays button.sel')].map(x=>+x.dataset.d);
+  if(schR==='days'&&!b.days.length){toast('Pick at least one day');return;}
+  if(schW==='pin'){const p=schSpotNow();if(!p){toast('Click the map and pick Schedule, or teleport first');return;}
+    b.what={kind:'pin',lat:p.lat,lng:p.lng};if(!b.name)b.name=(p.name||'').split(',')[0]||fmt(p.lat,p.lng);}
+  else{if(stops.length<2){toast('Add 2+ stops to the itinerary first');return;}
+    b.what={kind:'trip',...body()};if(planned&&planned.seed!=null)b.what.seed=planned.seed;  // the route you previewed, exactly
+    if(!b.name)b.name=stops.map(s=>(s.name||'').split(',')[0]).filter(Boolean).slice(0,3).join(' → ')||`${stops.length}-stop trip`;}
+  $('schBtn').disabled=true;
+  const r=await api('/schedule',b).catch(()=>null); $('schBtn').disabled=false;
+  if(!r||!r.ok){const e=r?await r.json().catch(()=>({})):{};toast(e.error||'Bridge not reachable');return;}
+  const e=await r.json(); $('schName').value=''; schSpot=null; schWhatText();
+  toast(e.starts_now?'Scheduled: its window is open, starting now':e.next?`Scheduled: ${whenAt(e.next)}`:'Scheduled'); poll();
+}
+async function schedAct(path,b){const r=await api(path,b).catch(()=>null);if(!r||!r.ok)toast('Bridge not reachable');poll();}
+function renderSched(s){
+  const list=s.schedule||[], key=JSON.stringify([list,s.by]); if(key===schedKey)return; schedKey=key; schedList=list;
+  const ul=$('sched'); ul.innerHTML='';
+  $('schedSub').textContent=list.length?`${list.filter(e=>e.enabled).length} on`:'';
+  if(!list.length){ul.innerHTML='<li class="empty" style="border:0">Nothing scheduled</li>';return;}
+  list.forEach(e=>{const li=document.createElement('li'); li.className=e.enabled?'':'off';
+    const live=s.by===e.id, w=e.what;
+    const what=w.kind==='pin'?'spot':`${w.stops.length} stops · ${w.mode}`;
+    const st=!e.enabled?'paused':live?`<span class="now">on now${e.until?' until '+new Date(e.until*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):''}</span>`:e.next?`next ${whenAt(e.next)}`:'';
+    li.innerHTML=`<span class="n"><b>${esc(e.name)}</b><span>${daysText(e)} ${hmL(e.start)}${e.end?'–'+hmL(e.end):''} · ${what}${st?' · '+st:''}</span></span>`+
+      `<button class="quiet" data-a="t">${e.enabled?'Pause':'Resume'}</button><button class="quiet" data-a="x" title="delete">×</button>`;
+    li.querySelector('.n').style.cursor='pointer';
+    li.querySelector('.n').onclick=()=>{const p=w.kind==='pin'?w:w.stops[0];map.flyTo({center:[p.lng,p.lat],zoom:Math.max(map.getZoom(),13),duration:700});};
+    li.querySelector('[data-a=t]').onclick=()=>schedAct('/schedule/enable',{id:e.id,enabled:!e.enabled});
+    li.querySelector('[data-a=x]').onclick=()=>{if(!e.enabled||!live||confirm(`"${e.name}" has the phone right now. Delete it and go back to real GPS?`))schedAct('/schedule/delete',{id:e.id});};
+    ul.appendChild(li);});
 }
 
 // ---------- saved / recent ----------
